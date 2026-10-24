@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#101513">
+<link rel="icon" href="data:,">
+<title>Trick Shot Simulator · Pool AR Coach</title>
+<style>
+:root{color-scheme:dark;--bg:#101513;--panel:#19221e;--line:#2c3932;--green:#83f28f;--muted:#aab8af;--orange:#ffbd69}
+*{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:#f4f7f4;font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;-webkit-text-size-adjust:100%}
+header{padding:calc(10px + env(safe-area-inset-top)) 14px 10px;border-bottom:1px solid var(--line);display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+h1{font-size:18px;margin:0}header p{margin:2px 0 0;color:var(--muted);font-size:12px}
+.tabs{display:flex;gap:6px}.tabs a{color:#f4f7f4;text-decoration:none;border:1px solid #435248;border-radius:999px;padding:6px 12px;font-size:13px;background:#1d2a23}.tabs a.on{background:var(--green);color:#102014;border-color:var(--green);font-weight:700}
+main{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(300px,1fr);gap:12px;padding:12px;max-width:1500px;margin:auto}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+#tableWrap{display:flex;justify-content:center;background:#0b100d;padding:8px 0}
+#table{display:block;touch-action:none;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none;border-radius:10px}
+.bar{display:flex;gap:6px;flex-wrap:wrap;padding:10px;border-top:1px solid var(--line);align-items:center}
+button,select{font:inherit;background:#26332b;color:#f4f7f4;border:1px solid #435248;border-radius:10px;padding:9px 12px;cursor:pointer;min-height:40px}
+button.primary{background:var(--green);color:#102014;border-color:var(--green);font-weight:700}button.on{outline:2px solid var(--green);border-color:var(--green);background:#2f4a37}
+button:disabled{opacity:.45}
+#result{padding:0 12px 10px;font-size:14px;min-height:1.4em}#result.ok{color:var(--green)}#result.bad{color:#ffb4a8}
+.side{padding:12px;display:flex;flex-direction:column;gap:12px}
+.group{border-bottom:1px solid var(--line);padding-bottom:12px}.group:last-child{border:0;padding-bottom:0}
+h2{font-size:16px;margin:0 0 6px}h3{font-size:13px;margin:10px 0 6px;color:var(--muted);font-weight:600}
+.picker{display:flex;gap:6px}.picker select{flex:1;min-width:0}
+.stars{color:var(--orange);letter-spacing:2px}.muted,small{color:var(--muted);font-size:12px}
+.facts{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;font-size:14px}.facts b{color:var(--muted);font-weight:600}
+.tip{background:#25271f;border:1px solid #5c5036;border-radius:10px;padding:10px;color:#f4d8a8;font-size:13px}
+#cueGraphic{display:block;width:100%;max-width:220px;height:auto;margin:6px auto 0;background:#111915;border:1px solid var(--line);border-radius:12px;cursor:pointer}
+label{display:block;font-size:13px;margin:8px 0 2px}input[type=range]{width:100%;accent-color:var(--green);height:28px}
+.line{display:flex;justify-content:space-between;font-size:12px;color:var(--muted)}
+.nudge{display:flex;gap:6px;margin-top:4px}.nudge button{flex:1;padding:6px 4px;min-height:36px;font-size:13px}
+.notice{background:#111915;border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--muted);font-size:12px}
+footer{max-width:1500px;margin:0 auto;padding:0 14px calc(20px + env(safe-area-inset-bottom));color:var(--muted);font-size:12px}
+@media(max-width:900px){main{grid-template-columns:1fr;padding:8px;gap:8px}.side{padding:10px}}
+@media(orientation:landscape) and (max-height:500px){main{grid-template-columns:minmax(0,1.5fr) minmax(260px,1fr)}header{padding-top:6px;padding-bottom:6px}header p{display:none}}
+</style>
+</head>
+<body>
+<header><div><h1>🎱 Trick Shot Simulator</h1><p>Classic trick shots, set up and played with a physics simulation</p></div>
+<nav class="tabs"><a href="./">Coach</a><a href="trick.html" class="on">Trick shots</a></nav></header>
+<main>
+<section class="panel">
+  <div id="tableWrap"><canvas id="table" aria-label="Pool table"></canvas></div>
+  <div class="bar">
+    <button id="playBtn" class="primary">▶ Play</button>
+    <button id="pauseBtn" disabled>⏸ Pause</button>
+    <button id="replayBtn">⟲ Reset</button>
+    <button id="slowBtn">🐢 0.25×</button>
+    <button id="trailBtn" class="on">Trails</button>
+    <button id="pathBtn" class="on">Expected paths</button>
+    <button id="soundBtn">🔇 Sound</button>
+  </div>
+  <div id="result"></div>
+</section>
+<aside class="panel side">
+  <section class="group">
+    <div class="picker"><button id="prevBtn" aria-label="Previous shot">◀</button><select id="shotSel" aria-label="Choose a trick shot"></select><button id="nextBtn" aria-label="Next shot">▶</button></div>
+    <h2 id="shotName" style="margin-top:10px"></h2>
+    <div><span class="stars" id="stars"></span> <small id="diffText"></small></div>
+    <p id="shotDesc" style="margin:6px 0"></p>
+    <div class="facts">
+      <b>Pocket</b><span id="targetsText"></span>
+      <b>Aim</b><span id="aimText"></span>
+      <b>Cue ball</b><span id="contactText"></span>
+      <b>Power</b><span id="powerText"></span>
+      <b id="masseLabel">Curve</b><span id="masseText"></span>
+    </div>
+    <canvas id="cueGraphic" width="260" height="180" aria-label="Cue ball contact point; tap to change"></canvas>
+    <p class="tip" id="tipText"></p>
+  </section>
+  <section class="group">
+    <h2>Try your own version</h2>
+    <p class="muted" style="margin:0">Drag any ball on the table to move it. Drag on empty cloth to aim the cue ball at your finger. Then change the settings below and tap Play. <b id="modTag" style="color:var(--orange)"></b></p>
+    <label>Aim angle: <b id="aimVal"></b></label>
+    <div class="nudge"><button data-nudge="-1">−1°</button><button data-nudge="-0.1">−0.1°</button><button data-nudge="0.1">+0.1°</button><button data-nudge="1">+1°</button></div>
+    <label for="power">Power</label><div class="line"><span>Soft</span><strong id="powerVal"></strong><span>Hard</span></div><input id="power" type="range" min="5" max="100" step="1">
+    <label for="side">English (side spin)</label><div class="line"><span>Left</span><strong id="sideVal"></strong><span>Right</span></div><input id="side" type="range" min="-100" max="100" step="1">
+    <label for="vert">Draw / follow</label><div class="line"><span>Draw</span><strong id="vertVal"></strong><span>Follow</span></div><input id="vert" type="range" min="-100" max="100" step="1">
+    <label for="masse">Curve (masse-style swerve)</label><div class="line"><span>Left</span><strong id="masseVal"></strong><span>Right</span></div><input id="masse" type="range" min="-100" max="100" step="1">
+    <div class="nudge" style="margin-top:10px"><button id="resetSetupBtn">Reset to original setup</button></div>
+  </section>
+  <section class="group">
+    <div class="notice">The simulator models sliding and rolling, spin, ball-to-ball throw, cushion rebounds with English, and pocket jaws, using typical cloth and cushion values. Real tables, balls and strokes differ, and it does not model squirt (cue-ball deflection from English) or jump shots, so expect to fine-tune aim and speed on a real table. Every shot in the list is checked automatically to go in with these settings.</div>
+  </section>
+</aside>
+</main>
+<footer>Part of Pool AR Coach. Tip: in portrait the table is shown long-ways; rotate your phone for a wider view.</footer>
+<script src="physics.js"></script>
+<script src="shots.js"></script>
+<script src="trick.js"></script>
+</body>
+</html>

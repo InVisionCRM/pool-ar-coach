@@ -29,6 +29,7 @@ label{display:block;font-size:13px;margin:9px 0 4px}input[type=range]{width:100%
 .balllist{display:flex;gap:6px;flex-wrap:wrap}.ballbtn{min-width:0;padding:7px 9px;font-size:12px}
 .notice{background:#25271f;border:1px solid #5c5036;border-radius:10px;padding:10px;color:#f4d8a8;font-size:12px}
 .possum{background:#111915;border:1px solid var(--line);border-radius:10px;padding:10px;font-size:13px;margin:8px 0 0}.possum b{color:var(--green)}.legend{display:flex;gap:10px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-top:6px}.legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:4px;vertical-align:-1px}
+.tabs{display:flex;gap:6px}.tabs a{color:#f4f7f4;text-decoration:none;border:1px solid #435248;border-radius:999px;padding:6px 12px;font-size:13px;background:#1d2a23}.tabs a.on{background:var(--green);color:#102014;border-color:var(--green);font-weight:700}
 footer{max-width:1400px;margin:0 auto;padding:0 14px 20px;color:var(--muted);font-size:12px}
 @media(max-width:850px){main{grid-template-columns:1fr;padding:9px;gap:9px}header{padding:14px}#stage{aspect-ratio:3/4;min-height:300px}.side{padding:12px}}
 #views{display:block}#topWrap{border-top:1px solid var(--line);background:#0b100d}#topWrap[hidden]{display:none}#topdown{display:block;width:100%;touch-action:none;-webkit-tap-highlight-color:transparent}
@@ -38,7 +39,7 @@ button.toggle.active{background:#2f4a37;border-color:var(--green)}
 
 </head>
 <body>
-<header><div><h1>🎱 Pool AR Coach</h1><p>Live camera + aiming overlays · experimental browser prototype</p></div><span class="hint" id="calibBadge">Table not calibrated</span></header>
+<header><div><h1>🎱 Pool AR Coach</h1><p>Live camera + aiming overlays · experimental browser prototype</p></div><nav class="tabs"><a href="./" class="on">Coach</a><a href="trick.html">Trick shots</a></nav><span class="hint" id="calibBadge">Table not calibrated</span></header>
 <main>
 <section class="panel">
   <div class="toolbar">
