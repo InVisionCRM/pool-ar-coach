@@ -31,27 +31,42 @@ label{display:block;font-size:13px;margin:9px 0 4px}input[type=range]{width:100%
 .possum{background:#111915;border:1px solid var(--line);border-radius:10px;padding:10px;font-size:13px;margin:8px 0 0}.possum b{color:var(--green)}.legend{display:flex;gap:10px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-top:6px}.legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:4px;vertical-align:-1px}
 footer{max-width:1400px;margin:0 auto;padding:0 14px 20px;color:var(--muted);font-size:12px}
 @media(max-width:850px){main{grid-template-columns:1fr;padding:9px;gap:9px}header{padding:14px}#stage{aspect-ratio:3/4;min-height:300px}.side{padding:12px}}
+#views{display:block}#topWrap{border-top:1px solid var(--line);background:#0b100d}#topWrap[hidden]{display:none}#topdown{display:block;width:100%;touch-action:none;-webkit-tap-highlight-color:transparent}
+button.toggle.active{background:#2f4a37;border-color:var(--green)}
+@media(min-width:1500px){#views{display:grid;grid-template-columns:1.3fr 1fr}#topWrap{border-top:0;border-left:1px solid var(--line)}}
 </style>
+
 </head>
 <body>
-<header><div><h1>🎱 Pool AR Coach</h1><p>Live camera + aiming overlays · experimental browser prototype</p></div><span class="hint">General shot practice</span></header>
+<header><div><h1>🎱 Pool AR Coach</h1><p>Live camera + aiming overlays · experimental browser prototype</p></div><span class="hint" id="calibBadge">Table not calibrated</span></header>
 <main>
 <section class="panel">
   <div class="toolbar">
     <button id="startBtn" class="primary">Start camera</button>
     <button id="stopBtn" disabled>Stop</button>
+    <button id="savedBtn" hidden>Use saved setup</button>
+    <button id="tableBtn" disabled>Detect table</button>
     <button id="detectBtn" disabled>Detect balls</button>
-    <button id="clearBtn">Clear balls</button>
+    <button id="trackBtn" class="toggle" disabled>Auto track: off</button>
+    <button id="autoTableBtn" class="toggle" disabled>Auto table: off</button>
+  </div>
+  <div class="toolbar">
     <select id="placeMode" aria-label="Placement mode">
-      <option value="cue">Place cue ball</option><option value="object">Place object ball</option><option value="pocket">Place target pocket</option><option value="next">Place next ball</option><option value="nextpocket">Place next pocket</option><option value="corner">Set table corners (4 taps)</option>
+      <option value="cue">Place cue ball</option><option value="object">Place object ball</option><option value="pocket">Place target pocket</option><option value="next">Place next ball</option><option value="nextpocket">Place next pocket</option><option value="corner">Set table corners (4 taps)</option><option value="felt">Tap the felt (color sample)</option><option value="edit">Fix a ball's type</option>
     </select>
     <button id="undoBtn">Undo last</button>
+    <button id="clearBtn">Clear balls</button>
     <button id="suggestBtn">Suggest position</button>
+    <button id="rotateBtn" title="Swap which way the long rails run">Rotate table</button>
+    <button id="topBtn" class="toggle active">Top-down view: on</button>
   </div>
-  <div id="stage">
-    <div id="placeholder"><h2>Start your camera to begin</h2><p>Set the phone so the full table is visible. Tap the image to place the cue ball, an object ball, and a target pocket. Detection is experimental and can be corrected manually.</p><p>Camera access generally requires HTTPS or localhost.</p></div>
-    <video id="video" autoplay playsinline muted hidden></video>
-    <canvas id="overlay" hidden></canvas>
+  <div id="views">
+    <div id="stage">
+      <div id="placeholder"><h2>Start your camera to begin</h2><p>Mount the phone at one end of the table, angled down so the whole playing surface is visible, or hold it. Tap <b>Detect table</b> (or tap the 4 corners), then <b>Detect balls</b>. You can also tap markers onto the top-down diagram.</p><p>Camera access generally requires HTTPS or localhost.</p></div>
+      <video id="video" autoplay playsinline muted hidden></video>
+      <canvas id="overlay" hidden></canvas>
+    </div>
+    <div id="topWrap"><canvas id="topdown" aria-label="Top-down table diagram"></canvas><div class="hint" style="padding:4px 10px 8px">Top-down diagram (true table coordinates). Tap it to place or pick markers too.</div></div>
   </div>
   <div class="status" id="status">Camera off · no table calibration yet</div>
 </section>
@@ -59,18 +74,17 @@ footer{max-width:1400px;margin:0 auto;padding:0 14px 20px;color:var(--muted);fon
   <section class="group">
     <h2>Shot recommendation</h2>
     <div class="row">
-      <div class="metric"><b id="angleMetric">—°</b><span>Estimated cut angle</span></div>
-      <div class="metric"><b id="distanceMetric">—</b><span>Path distance (relative)</span></div>
+      <div class="metric"><b id="angleMetric">—°</b><span>Cut angle on this shot</span></div>
+      <div class="metric"><b id="distanceMetric">—</b><span>Cue ball to contact</span></div>
     </div>
     <div class="row" style="margin-top:8px">
       <div class="metric"><b id="nextCutMetric">—°</b><span>Next-shot cut (predicted)</span></div>
       <div class="metric"><b id="positionMetric">—</b><span>Position quality</span></div>
     </div>
-    <div class="possum" id="positionSummary">Position play: place the cue ball, object ball, pocket and the <b>Next ball</b>, then tap <b>Suggest position</b>.</div>
+    <div class="possum" id="positionSummary">Position play: pick the cue ball, object ball and the <b>Next ball</b>, then tap <b>Suggest position</b>.</div>
     <p class="hint" id="manualSummary"></p>
     <p class="hint" id="tableHint"></p>
-    <div class="legend"><span><i style="background:#ff7ad9"></i>Predicted cue-ball path</span><span><i style="background:rgba(131,242,143,.55)"></i>Suggested landing zone</span><span><i style="background:#5ab0ff"></i>Next ball</span></div>
-    <p class="hint">Prototype geometry uses your image coordinates. For accurate real-world angles, calibrate the table corners and compensate for perspective.</p>
+    <div class="legend"><span><i style="background:#ff7ad9"></i>Predicted cue-ball path</span><span><i style="background:rgba(131,242,143,.55)"></i>Suggested landing zone</span><span><i style="background:#ffbd69"></i>Aim line / ghost ball</span></div>
   </section>
   <section class="group">
     <h2>Shot controls</h2>
@@ -95,198 +109,164 @@ footer{max-width:1400px;margin:0 auto;padding:0 14px 20px;color:var(--muted);fon
       <button class="ballbtn" data-mode="next">Next ball</button>
       <button class="ballbtn" data-mode="nextpocket">Next pocket</button>
       <button class="ballbtn" data-mode="corner">Table corners</button>
+      <button class="ballbtn" data-mode="felt">Tap felt</button>
+      <button class="ballbtn" data-mode="edit">Fix ball type</button>
     </div>
-    <p class="hint">Tap a tool, then tap the camera view to add or move that marker. You can add multiple object balls and pockets. The selected object ball is the most recently placed one. For position play, also place the <b>Next ball</b> (N) and optionally the <b>Next pocket</b> (NP). <b>Table corners</b> takes 4 taps on the corners of the playing surface so cue-ball rail bounces line up.</p>
+    <p class="hint">Pick a tool, then tap the camera view or the top-down diagram. In Cue, Object or Next mode, tapping a detected ball assigns it; tapping empty felt places a new marker. Pocket and Next pocket snap to the nearest of the 6 pockets (if you skip Pocket, the easiest pocket is chosen). Table corners: tap the 4 corners of the playing surface. Tap felt: tap bare cloth so detection learns its color. Fix ball type: tap a ball and choose its type below.</p>
+    <div id="ballEditor" class="possum" hidden>
+      <div class="row"><span style="flex:0 0 auto">Selected ball:</span><select id="ballType" aria-label="Ball type"></select></div>
+      <div class="row" style="margin-top:6px"><button id="mkCue" class="ballbtn">Make cue</button><button id="mkObj" class="ballbtn">Make object</button><button id="mkNext" class="ballbtn">Make next</button><button id="delBall" class="ballbtn">Delete</button></div>
+    </div>
+  </section>
+  <section class="group">
+    <h2>Table setup</h2>
+    <label for="tableSize">Table size</label>
+    <select id="tableSize" aria-label="Table size"><option value="9">9 ft (100 × 50 in playing surface)</option><option value="8">8 ft (88 × 44 in)</option><option value="7">7 ft (78 × 39 in)</option></select>
+    <p class="hint">Calibration (corners, felt color, table size) is saved on this phone automatically. <button id="forgetBtn" class="ballbtn">Forget saved setup</button></p>
   </section>
   <section class="group">
     <h2>Prototype notes</h2>
-    <div class="notice">Automatic detection uses OpenCV.js circle detection when the library loads. Pool balls can be missed or false-detected due to reflections, shadows, and camera angle. Manually correct positions before trusting any line.</div>
+    <div class="notice">Detection finds the felt by its color, maps the table to a flat top-down view, then looks for round non-felt blobs and sorts them by color: mostly white = cue, mostly black = 8, white band + color = stripe, and the main color picks the number. Glare, shadows, dim far ends, a green ball on green felt (or blue on blue) and balls touching each other cause mistakes, so check the labels and fix any that are wrong.</div>
     <div class="notice" style="margin-top:8px">Position play is an approximation. It uses textbook rules (stun follows the tangent line, follow and draw bend the path, side spin changes the rail rebound) and a rough guess of how far the ball rolls at each power level. Cloth speed, rail bounce, your stroke and the camera angle all change the result, so use the suggestion as a starting point and adjust power and spin for your table.</div>
+    <div class="notice" style="margin-top:8px">Auto table follows a hand-held phone by re-finding the felt several times a second. Expect the overlay to wobble or lag a little when you move, and to drop out if part of the table leaves the frame. A fixed mount is steadier.</div>
   </section>
 </aside>
 </main>
-<footer>Prototype only — not a competition-grade aiming system. Live camera permission is handled by your browser. Camera video is processed locally in this page; no video is uploaded by this prototype. OpenCV.js is loaded from an external CDN for the optional detection feature.</footer>
+<footer>Prototype only — not a competition-grade aiming system. Live camera permission is handled by your browser. Camera video is processed locally in this page; no video is uploaded by this prototype. OpenCV.js is loaded from this site (with CDN fallbacks) for the optional detection features.</footer>
 <script>
 (() => {
-const video=document.getElementById('video'), canvas=document.getElementById('overlay'), ctx=canvas.getContext('2d');
-const stage=document.getElementById('stage'), placeholder=document.getElementById('placeholder'), statusEl=document.getElementById('status');
-const startBtn=document.getElementById('startBtn'), stopBtn=document.getElementById('stopBtn'), detectBtn=document.getElementById('detectBtn');
-const modeSelect=document.getElementById('placeMode');
-const power=document.getElementById('power'), spin=document.getElementById('spin'), vertical=document.getElementById('vertical');
-let detectCanvas=null;let stream=null, mode='cue', cue=null, objects=[], pockets=[], history=[], cvReady=false, raf=0, lastDetection=0;
-let nextBall=null, nextPocket=null, corners=[], suggestion=null;
+'use strict';
+const $=id=>document.getElementById(id);
+const video=$('video'), canvas=$('overlay'), ctx=canvas.getContext('2d');
+const stage=$('stage'), placeholder=$('placeholder'), statusEl=$('status');
+const startBtn=$('startBtn'), stopBtn=$('stopBtn'), detectBtn=$('detectBtn'), tableBtn=$('tableBtn'), trackBtn=$('trackBtn'), autoTableBtn=$('autoTableBtn'), savedBtn=$('savedBtn'), topBtn=$('topBtn');
+const topCanvas=$('topdown'), tctx=topCanvas.getContext('2d'), topWrap=$('topWrap');
+const modeSelect=$('placeMode');
+const power=$('power'), spin=$('spin'), vertical=$('vertical');
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const BALL_R=1.125, SETUP_KEY='poolArCoach.setup.v1', AUTO_INSET=2.0;
+const TABLES={'9':{L:100,W:50},'8':{L:88,W:44},'7':{L:78,W:39}};
+let table={L:100,W:50,size:'9'};
+let stream=null, mode='cue', cvReady=false, dirty=true;
+let balls=[], nextBallId=1, roles={cue:null,object:null,next:null}, targetPocket=null, nextPocket=null;
+let calib={corners:null,rot:0,src:'none',inset:0}, H=null, Hi=null, cornerTaps=[];
+let feltHSV=null, history=[], suggestion=null, selectedBall=null;
+let autoTrack=false, autoTable=false, busy=false, lastTableRun=0, lastBallRun=0, trackStats={runs:0,lastMs:0,tableRuns:0,tableMs:0};
+let frameCanvasEl=null, showTop=true;
 function setStatus(s){statusEl.textContent=s}
-function sizeCanvas(){
- const r=stage.getBoundingClientRect(); const dpr=Math.min(window.devicePixelRatio||1,2);
- canvas.width=Math.round(r.width*dpr);canvas.height=Math.round(r.height*dpr);
- canvas.style.width=r.width+'px';canvas.style.height=r.height+'px';ctx.setTransform(dpr,0,0,dpr,0,0);draw();
-}
-function dims(){return {w:stage.clientWidth,h:stage.clientHeight}}
-// Displayed video rect inside the stage (object-fit:contain letterboxing), in stage CSS px
-function videoRect(){const {w,h}=dims();const vw=video.videoWidth,vh=video.videoHeight;if(!vw||!vh)return {x:0,y:0,w:w,h:h};const s=Math.min(w/vw,h/vh);const dw=vw*s,dh=vh*s;return {x:(w-dw)/2,y:(h-dh)/2,w:dw,h:dh}}
-function snapshot(){history.push(JSON.stringify({cue:cue,objects:objects,pockets:pockets,nextBall:nextBall,nextPocket:nextPocket,corners:corners}));if(history.length>30)history.shift()}
-function restoreLast(){if(!history.length)return;const x=JSON.parse(history.pop());cue=x.cue;objects=x.objects;pockets=x.pockets;nextBall=x.nextBall||null;nextPocket=x.nextPocket||null;corners=x.corners||[];markersChanged()}
-function pointFromEvent(e){const r=canvas.getBoundingClientRect();return {x:e.clientX-r.left,y:e.clientY-r.top}}
-function norm(p){const {w,h}=dims();return {x:p.x/w,y:p.y/h}}
-function denorm(p){const {w,h}=dims();return {x:p.x*w,y:p.y*h}}
-function addAt(p,m=mode){snapshot();const q=norm(p);let msg='Marker placed. Use the placement tools to correct positions.';
- if(m==='cue')cue=q;else if(m==='object')objects.push(q);else if(m==='next'){nextBall=q;msg='Next ball placed.'}else if(m==='nextpocket'){nextPocket=q;msg='Next pocket placed.'}else if(m==='corner'){if(corners.length>=4)corners=[];corners.push(q);msg='Table corner '+corners.length+' of 4 set.'+(corners.length<4?' Tap the next corner.':' Table edges set.')}else pockets.push(q);
- markersChanged();setStatus(msg)}
-let lastPointerTap=0;
-if(window.PointerEvent){canvas.addEventListener('pointerup',e=>{if(!stream)return;if(e.pointerType==='mouse'&&e.button!==0)return;e.preventDefault();lastPointerTap=Date.now();addAt(pointFromEvent(e),mode)})}
-canvas.addEventListener('click',e=>{if(!stream)return;if(Date.now()-lastPointerTap<700)return;addAt(pointFromEvent(e),mode)});
-function circle(p,r,fill,stroke,label){const q=denorm(p);ctx.beginPath();ctx.arc(q.x,q.y,r,0,Math.PI*2);ctx.fillStyle=fill;ctx.fill();ctx.lineWidth=2;ctx.strokeStyle=stroke;ctx.stroke();if(label){ctx.fillStyle='#101513';ctx.font='bold 11px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(label,q.x,q.y)}}
-function line(a,b,color,width=2,dash=[]){const A=denorm(a),B=denorm(b);ctx.beginPath();ctx.setLineDash(dash);ctx.moveTo(A.x,A.y);ctx.lineTo(B.x,B.y);ctx.strokeStyle=color;ctx.lineWidth=width;ctx.stroke();ctx.setLineDash([])}
-function arrow(a,b,color){line(a,b,color,2,[7,5]);const A=denorm(a),B=denorm(b),ang=Math.atan2(B.y-A.y,B.x-A.x),len=10;ctx.beginPath();ctx.moveTo(B.x,B.y);ctx.lineTo(B.x-len*Math.cos(ang-.45),B.y-len*Math.sin(ang-.45));ctx.lineTo(B.x-len*Math.cos(ang+.45),B.y-len*Math.sin(ang+.45));ctx.closePath();ctx.fillStyle=color;ctx.fill()}
-function draw(){
- const {w,h}=dims();ctx.clearRect(0,0,w,h);
- if(stream && video.readyState>=2){try{ctx.fillStyle='rgba(8,12,9,.08)';ctx.fillRect(0,0,w,h)}catch(e){}}
- // draw the shot route from cue to ghost-ball contact point to object and pocket
- const obj=objects.length?objects[objects.length-1]:null, pocket=pockets.length?pockets[pockets.length-1]:null;
- if(cue&&obj){
-   let target=obj;
-   if(pocket){
-     const dx=pocket.x-obj.x,dy=pocket.y-obj.y,L=Math.hypot(dx,dy)||1;
-     const radius=0.014; target={x:obj.x-dx/L*radius,y:obj.y-dy/L*radius};
-     arrow(obj,pocket,'#83f28f');
-   }
-   arrow(cue,target,'#ffbd69');
-   if(pocket&&cue){const a=denorm(cue),b=denorm(target);ctx.beginPath();ctx.arc(b.x,b.y,9,0,Math.PI*2);ctx.strokeStyle='#ffbd69';ctx.lineWidth=2;ctx.stroke()}
- }
- drawPosition();
- pockets.forEach((p,i)=>circle(p,7,'#0a0a0a','#83f28f','P'+(i+1)));
- if(nextPocket)circle(nextPocket,9,'#0a0a0a','#5ab0ff','');
- if(nextPocket){const q=denorm(nextPocket);ctx.fillStyle='#5ab0ff';ctx.font='bold 10px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('NP',q.x,q.y)}
- corners.forEach((p,i)=>{const q=denorm(p);ctx.strokeStyle='#a5f7ff';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(q.x-7,q.y);ctx.lineTo(q.x+7,q.y);ctx.moveTo(q.x,q.y-7);ctx.lineTo(q.x,q.y+7);ctx.stroke();ctx.fillStyle='#a5f7ff';ctx.font='10px system-ui';ctx.textAlign='left';ctx.textBaseline='bottom';ctx.fillText('T'+(i+1),q.x+5,q.y-3)});
- if(nextBall)circle(nextBall,10,'#5ab0ff','#d8ecff','N');
- objects.forEach((p,i)=>circle(p,10,'#e8b53d','#fff0b5',String(i+1)));
- if(cue)circle(cue,10,'#f7f7f0','#a5f7ff','C');
-}
-function updateMetrics(){
- const obj=objects.length?objects[objects.length-1]:null,p=pockets.length?pockets[pockets.length-1]:null;
- if(!cue||!obj){document.getElementById('angleMetric').textContent='—°';document.getElementById('distanceMetric').textContent='—';return}
- const cv={x:obj.x-cue.x,y:obj.y-cue.y};
- let angle=0,dist=Math.hypot(cv.x,cv.y);
- if(p){const ov={x:p.x-obj.x,y:p.y-obj.y};const dot=cv.x*ov.x+cv.y*ov.y;const den=(Math.hypot(cv.x,cv.y)*Math.hypot(ov.x,ov.y))||1;angle=Math.acos(clamp(dot/den,-1,1))*180/Math.PI}
- document.getElementById('angleMetric').textContent=p?Math.round(angle)+'°':'—°';
- document.getElementById('distanceMetric').textContent=Math.round(dist*1000)/10+'% frame';
-}
-function renderCueGraphic(){
- const c=document.getElementById('cueGraphic'),g=c.getContext('2d');g.clearRect(0,0,c.width,c.height);
- g.fillStyle='#111915';g.fillRect(0,0,c.width,c.height);
- const x=130,y=86,r=57;
- const grad=g.createRadialGradient(x-17,y-20,4,x,y,r);grad.addColorStop(0,'#fff');grad.addColorStop(1,'#b9c3be');
- g.beginPath();g.arc(x,y,r,0,Math.PI*2);g.fillStyle=grad;g.fill();g.strokeStyle='#e8eee9';g.lineWidth=2;g.stroke();
- g.strokeStyle='#64756a';g.setLineDash([3,4]);g.beginPath();g.moveTo(x-r,y);g.lineTo(x+r,y);g.moveTo(x,y-r);g.lineTo(x,y+r);g.stroke();g.setLineDash([]);
- const sx=spin.value/100, vy=vertical.value/100;
- const px=x+sx*r*.72,py=y-vy*r*.72;
- g.beginPath();g.arc(px,py,7,0,Math.PI*2);g.fillStyle='#ffbd69';g.fill();g.strokeStyle='#fff0d7';g.stroke();
- g.fillStyle='#aab8af';g.font='11px system-ui';g.textAlign='center';g.fillText('CUE-BALL CONTACT',130,164);
-}
-function updateControls(){
- document.getElementById('powerLabel').textContent=power.value+'%';
- const s=Number(spin.value),v=Number(vertical.value);
- document.getElementById('spinLabel').textContent=s<-8?'Left '+Math.abs(s)+'%':s>8?'Right '+s+'%':'Center';
- document.getElementById('verticalLabel').textContent=v<-8?'Draw '+Math.abs(v)+'%':v>8?'Follow '+v+'%':'Center';
- renderCueGraphic();draw();updateManualText();
-}
-[power,spin,vertical].forEach(x=>x.addEventListener('input',updateControls));
-document.getElementById('cueGraphic').addEventListener('click',e=>{
- const r=e.currentTarget.getBoundingClientRect();const x=(e.clientX-r.left)/r.width*260,y=(e.clientY-r.top)/r.height*180;
- const nx=clamp((x-130)/57,-1,1),ny=clamp((86-y)/57,-1,1);
- spin.value=Math.round(nx*100);vertical.value=Math.round(ny*100);updateControls()
-});
-document.querySelectorAll('[data-mode]').forEach(b=>b.addEventListener('click',()=>setMode(b.dataset.mode)));
-function setMode(m){mode=m;modeSelect.value=m;document.querySelectorAll('[data-mode]').forEach(b=>b.classList.toggle('active',b.dataset.mode===m))}
-modeSelect.addEventListener('change',()=>setMode(modeSelect.value));
-document.getElementById('undoBtn').addEventListener('click',restoreLast);
-document.getElementById('clearBtn').addEventListener('click',()=>{snapshot();cue=null;objects=[];pockets=[];nextBall=null;nextPocket=null;markersChanged();setStatus('Markers cleared (table corners kept; tap Table corners 4 times to reset them).')});
-document.getElementById('suggestBtn').addEventListener('click',()=>runSuggest(false));
-startBtn.addEventListener('click',async()=>{
- try{
-  stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:960}},audio:false});
-  video.srcObject=stream;video.hidden=false;placeholder.hidden=true;canvas.hidden=false;startBtn.disabled=true;stopBtn.disabled=false;detectBtn.disabled=false;
-  video.setAttribute('playsinline','');video.setAttribute('webkit-playsinline','');video.muted=true;
-  video.addEventListener('loadedmetadata',sizeCanvas,{once:true});
-  try{await video.play()}catch(pe){console.warn('video.play failed',pe)}
-  if(video.readyState>=1)sizeCanvas();setTimeout(sizeCanvas,300);setStatus('Camera running. Tap the view to place markers. Video stays in this browser tab.');
- }catch(err){setStatus('Camera could not start: '+err.message+'. Use HTTPS or localhost and allow camera permission.')}
-});
-stopBtn.addEventListener('click',()=>{if(stream)stream.getTracks().forEach(t=>t.stop());stream=null;video.srcObject=null;video.hidden=true;canvas.hidden=true;placeholder.hidden=false;startBtn.disabled=false;stopBtn.disabled=true;detectBtn.disabled=true;setStatus('Camera stopped. Markers retained.');});
-window.addEventListener('resize',sizeCanvas);window.addEventListener('orientationchange',()=>setTimeout(sizeCanvas,300));video.addEventListener('loadedmetadata',sizeCanvas);video.addEventListener('resize',sizeCanvas);
-const cueGraphic=document.getElementById('cueGraphic');
-function markCvReady(){if(cvReady)return;cvReady=true;setStatus('OpenCV.js ready. Tap Detect balls to run experimental circle detection.')}
-function initCv(){
- const c=window.cv;if(!c)return false;
- if(typeof c.then==='function'){try{c.then(m=>{window.cv=m;if(m&&m.Mat)markCvReady();else if(m)m.onRuntimeInitialized=markCvReady},()=>setStatus('OpenCV.js failed to initialize. Manual placement still works.'))}catch(e){c.onRuntimeInitialized=markCvReady}return true}
- if(c.Mat){markCvReady();return true}
- c.onRuntimeInitialized=markCvReady;return true;
-}
-const CV_SOURCES=['opencv.js','https://docs.opencv.org/4.9.0/opencv.js','https://cdn.jsdelivr.net/npm/@techstark/opencv-js@4.10.0-release.1/dist/opencv.js'];
-function loadOpenCV(i=0){
- if(i>=CV_SOURCES.length){setStatus('OpenCV.js did not load. Manual placement still works.');return}
- const s=document.createElement('script');s.async=true;s.src=CV_SOURCES[i];
- s.onload=()=>{if(!initCv())loadOpenCV(i+1)};
- s.onerror=()=>{s.remove();loadOpenCV(i+1)};
- document.head.appendChild(s);
-}
-detectBtn.addEventListener('click',()=>{
- if(!stream||video.readyState<2){setStatus('Start the camera first.');return}
- if(!cvReady){setStatus('OpenCV.js is still loading or unavailable. Manual placement works without it.');return}
- try{
-  const fw=video.videoWidth,fh=video.videoHeight;if(!fw||!fh){setStatus('Video frame not ready yet. Try again in a moment.');return}
-  const off=detectCanvas||(detectCanvas=document.createElement('canvas'));off.width=fw;off.height=fh;off.getContext('2d').drawImage(video,0,0,fw,fh);
-  const src=cv.imread(off);const gray=new cv.Mat();const circles=new cv.Mat();
-  cv.cvtColor(src,gray,cv.COLOR_RGBA2GRAY);cv.medianBlur(gray,gray,5);
-  cv.HoughCircles(gray,circles,cv.HOUGH_GRADIENT,1,Math.max(12,src.rows/35),100,24,Math.max(5,src.rows/100),Math.max(12,src.rows/15));
-  const vr=videoRect(),st=dims();
-  snapshot();let found=0;
-  for(let i=0;i<circles.cols;i++){
-   const x=circles.data32F[i*3],y=circles.data32F[i*3+1],r=circles.data32F[i*3+2];
-   if(r<5)continue;
-   // frame px -> stage px through displayed video rect -> stage-normalized
-   const p={x:(vr.x+x/src.cols*vr.w)/st.w,y:(vr.y+y/src.rows*vr.h)/st.h};
-   // Keep the first detected circle as cue ball only if none is placed; otherwise append candidates as object balls.
-   if(!cue)cue=p;else objects.push(p);found++;
-   if(found>=12)break;
-  }
-  src.delete();gray.delete();circles.delete();markersChanged();
-  setStatus(found?'Experimental detector found '+found+' circular candidate'+(found===1?'':'s')+'. Review and manually correct them.':'No circles found. Try brighter lighting or manual placement.');
- }catch(e){setStatus('Detection error: '+e.message+' — manual placement remains available.')}
-});
-// ---------- Position play (approximate, image-space) ----------
-const DRAW_K=1.6, RAIL_LOSS=0.65, MAX_RAILS=3, ROLL_K=9;
+function requestDraw(){dirty=true}
+// ---------- vector helpers ----------
 function vsub(a,b){return {x:a.x-b.x,y:a.y-b.y}}function vadd(a,b){return {x:a.x+b.x,y:a.y+b.y}}function vmul(a,k){return {x:a.x*k,y:a.y*k}}
 function vdot(a,b){return a.x*b.x+a.y*b.y}function vlen(a){return Math.hypot(a.x,a.y)}function vunit(a){const l=vlen(a)||1;return {x:a.x/l,y:a.y/l}}
 function segDist(p,a,b){const ab=vsub(b,a),L2=vdot(ab,ab);let t=L2?vdot(vsub(p,a),ab)/L2:0;t=clamp(t,0,1);return vlen(vsub(p,vadd(a,vmul(ab,t))))}
-function lastOf(arr){return arr.length?arr[arr.length-1]:null}
-// Table rectangle in stage px: 4 corner taps > bounding box of 4+ pockets > displayed video inset
-function tableRect(){
- let pts=null,src='video';
- if(corners.length===4){pts=corners;src='corners'}
- else{const all=pockets.slice();if(nextPocket)all.push(nextPocket);if(all.length>=4){pts=all;src='pockets'}}
- if(pts){let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;pts.forEach(p=>{const q=denorm(p);x0=Math.min(x0,q.x);y0=Math.min(y0,q.y);x1=Math.max(x1,q.x);y1=Math.max(y1,q.y)});
-  if(x1-x0>40&&y1-y0>40)return {x0:x0,y0:y0,x1:x1,y1:y1,src:src}}
- const vr=videoRect(),ix=vr.w*0.04,iy=vr.h*0.04;return {x0:vr.x+ix,y0:vr.y+iy,x1:vr.x+vr.w-ix,y1:vr.y+vr.h-iy,src:'video'};
+// ---------- homography (pure JS, works without OpenCV) ----------
+function solve(A,b){const n=b.length;for(let i=0;i<n;i++){let p=i;for(let r=i+1;r<n;r++)if(Math.abs(A[r][i])>Math.abs(A[p][i]))p=r;
+ const t=A[i];A[i]=A[p];A[p]=t;const tb=b[i];b[i]=b[p];b[p]=tb;const d=A[i][i];if(Math.abs(d)<1e-12)return null;
+ for(let r=0;r<n;r++){if(r===i)continue;const f=A[r][i]/d;if(!f)continue;for(let c=i;c<n;c++)A[r][c]-=f*A[i][c];b[r]-=f*b[i]}}
+ const x=[];for(let i=0;i<n;i++)x.push(b[i]/A[i][i]);return x}
+function homography(src,dst){const A=[],b=[];for(let i=0;i<4;i++){const s=src[i],d=dst[i];
+ A.push([s.x,s.y,1,0,0,0,-d.x*s.x,-d.x*s.y]);b.push(d.x);A.push([0,0,0,s.x,s.y,1,-d.y*s.x,-d.y*s.y]);b.push(d.y)}
+ const h=solve(A,b);if(!h)return null;return [h[0],h[1],h[2],h[3],h[4],h[5],h[6],h[7],1]}
+function applyH(m,p){const w=m[6]*p.x+m[7]*p.y+m[8];return {x:(m[0]*p.x+m[1]*p.y+m[2])/w,y:(m[3]*p.x+m[4]*p.y+m[5])/w}}
+// ---------- coordinate frames: stage px <-> frame-normalized <-> table inches ----------
+function dims(){return {w:stage.clientWidth,h:stage.clientHeight}}
+function frameSize(){return (video.videoWidth&&video.videoHeight)?{w:video.videoWidth,h:video.videoHeight}:(function(){const d=dims();return {w:d.w||4,h:d.h||3}})()}
+function videoRect(){const {w,h}=dims();const vw=video.videoWidth,vh=video.videoHeight;if(!vw||!vh)return {x:0,y:0,w:w,h:h};const s=Math.min(w/vw,h/vh);const dw=vw*s,dh=vh*s;return {x:(w-dw)/2,y:(h-dh)/2,w:dw,h:dh}}
+function frameToStage(f){const vr=videoRect();return {x:vr.x+f.x*vr.w,y:vr.y+f.y*vr.h}}
+function stageToFrame(p){const vr=videoRect();return {x:(p.x-vr.x)/vr.w,y:(p.y-vr.y)/vr.h}}
+function tableToFrame(t){return applyH(Hi,t)}
+function tableToStage(t){return frameToStage(applyH(Hi,t))}
+function stageToTable(p){return applyH(H,stageToFrame(p))}
+function orderQuad(pts){const fs=frameSize();const P=pts.map(p=>({x:p.x,y:p.y,px:p.x*fs.w,py:p.y*fs.h}));
+ const cx=P.reduce((s,p)=>s+p.px,0)/4,cy=P.reduce((s,p)=>s+p.py,0)/4;P.sort((a,b)=>Math.atan2(a.py-cy,a.px-cx)-Math.atan2(b.py-cy,b.px-cx));
+ let k=0,best=1e18;P.forEach((p,i)=>{if(p.px+p.py<best){best=p.px+p.py;k=i}});const out=[];for(let i=0;i<4;i++){const p=P[(k+i)%4];out.push({x:p.x,y:p.y})}return out}
+function chooseRot(c,boost){const fs=frameSize();const d=(a,b)=>Math.hypot((a.x-b.x)*fs.w,(a.y-b.y)*fs.h);
+ const tb=d(c[0],c[1])+d(c[3],c[2]),sd=d(c[1],c[2])+d(c[0],c[3]);return sd*boost>tb?1:0}
+function defaultCorners(){return [{x:.04,y:.04},{x:.96,y:.04},{x:.96,y:.96},{x:.04,y:.96}]}
+function computeH(){const c=calib.corners||defaultCorners();const rot=calib.corners?calib.rot:chooseRot(c,1);const e=calib.corners?calib.inset:0;
+ const tc=[{x:-e,y:-e},{x:table.L+e,y:-e},{x:table.L+e,y:table.W+e},{x:-e,y:table.W+e}];const img=[];for(let j=0;j<4;j++)img.push(c[(j+rot)%4]);
+ const h1=homography(img,tc),h2=homography(tc,img);if(h1&&h2){H=h1;Hi=h2}updateCalibBadge()}
+function quadImageCornersInTableOrder(){const c=calib.corners||defaultCorners();const rot=calib.corners?calib.rot:chooseRot(c,1);const img=[];for(let j=0;j<4;j++)img.push(c[(j+rot)%4]);return img}
+// Change calibration. keepImage=true keeps markers where they appear on screen (manual recalibration);
+// false keeps them on the same spot of the table (tracking a moving phone).
+function setCalibration(corners,rot,src,inset,keepImage){
+ let fpos=null;if(keepImage&&Hi)fpos=balls.map(b=>tableToFrame(b));
+ calib={corners:corners,rot:rot,src:src,inset:inset};computeH();
+ if(fpos)balls.forEach((b,i)=>{const t=applyH(H,fpos[i]);b.x=clamp(t.x,BALL_R,table.L-BALL_R);b.y=clamp(t.y,BALL_R,table.W-BALL_R)});
+ updateTableHint();requestDraw();
 }
-function updateTableHint(){const el=document.getElementById('tableHint');if(!el)return;const t=tableRect();
- el.textContent=t.src==='corners'?'Rails: using your 4 table-corner taps.':t.src==='pockets'?'Rails: using the outline of your placed pockets.':'Rails: guessing from the camera frame. Tap "Table corners" and tap the 4 corners (or place 4+ pockets) to make bounce predictions more accurate.'}
-// Gather the current shot in stage px
+function updateCalibBadge(){const el=$('calibBadge');el.textContent=calib.src==='none'?'Table not calibrated':calib.src==='auto'?'Table: auto-detected':calib.src==='tracking'?'Table: auto tracking':calib.src==='saved'?'Table: saved setup':'Table: corners tapped'}
+function pocketsT(){const L=table.L,W=table.W;return [{x:0,y:0},{x:L/2,y:0},{x:L,y:0},{x:L,y:W},{x:L/2,y:W},{x:0,y:W}]}
+// ---------- saved setup ----------
+function saveSetup(){if(!calib.corners)return;try{localStorage.setItem(SETUP_KEY,JSON.stringify({corners:calib.corners,rot:calib.rot,inset:calib.inset,feltHSV:feltHSV,size:table.size,t:Date.now()}));savedBtn.hidden=false}catch(e){}}
+function loadSaved(){try{const s=localStorage.getItem(SETUP_KEY);return s?JSON.parse(s):null}catch(e){return null}}
+function applySaved(){const s=loadSaved();if(!s||!s.corners)return false;if(s.size&&TABLES[s.size])setTableSize(s.size,true);feltHSV=s.feltHSV||null;setCalibration(s.corners,s.rot||0,'saved',s.inset||0,false);markersChanged();return true}
+function setTableSize(sz,silent){const t=TABLES[sz];if(!t)return;table={L:t.L,W:t.W,size:sz};$('tableSize').value=sz;computeH();if(!silent){saveSetup();markersChanged()}}
+// ---------- history ----------
+function snapshot(){history.push(JSON.stringify({balls:balls,roles:roles,targetPocket:targetPocket,nextPocket:nextPocket,calib:calib,nextBallId:nextBallId}));if(history.length>30)history.shift()}
+function restoreLast(){if(!history.length){setStatus('Nothing to undo.');return}const x=JSON.parse(history.pop());balls=x.balls;roles=x.roles;targetPocket=x.targetPocket;nextPocket=x.nextPocket;nextBallId=x.nextBallId||nextBallId;calib=x.calib;computeH();selectedBall=null;$('ballEditor').hidden=true;markersChanged();setStatus('Undid last change.')}
+// ---------- balls ----------
+function ballById(id){if(id===null||id===undefined)return null;for(let i=0;i<balls.length;i++)if(balls[i].id===id)return balls[i];return null}
+function nearestBall(t,maxD){let best=null,bd=maxD;balls.forEach(b=>{const d=Math.hypot(b.x-t.x,b.y-t.y);if(d<bd){bd=d;best=b}});return best}
+function newBall(t,type,src){const b={id:nextBallId++,x:clamp(t.x,BALL_R,table.L-BALL_R),y:clamp(t.y,BALL_R,table.W-BALL_R),type:type,src:src,miss:0,votes:{},userType:src==='manual'&&type!=='?'};balls.push(b);return b}
+function roleOf(b){return roles.cue===b.id?'cue':roles.object===b.id?'object':roles.next===b.id?'next':null}
+function assignRole(role,b){['cue','object','next'].forEach(r=>{if(roles[r]===b.id)roles[r]=null});roles[role]=b.id;if(role==='cue'&&b.type==='?'){b.type='cue';b.userType=true}}
+function nearestPocket(t){const P=pocketsT();let k=0,bd=1e9;P.forEach((p,i)=>{const d=Math.hypot(p.x-t.x,p.y-t.y);if(d<bd){bd=d;k=i}});return k}
+const TYPE_LIST=['?','cue','8','1','2','3','4','5','6','7','9','10','11','12','13','14','15'];
+const HUE_COLORS={1:'#f2c21b',2:'#2357d8',3:'#d4232b',4:'#6a2c91',5:'#f07a19',6:'#1d8a3a',7:'#7a1f1f'};
+function ballLook(type){if(type==='cue')return {fill:'#f7f7f0',stripe:false,label:'',text:'#101513'};if(type==='8')return {fill:'#111',stripe:false,label:'8',text:'#fff'};
+ const n=parseInt(type,10);if(!(n>=1&&n<=15))return {fill:'#e8b53d',stripe:false,label:'?',text:'#101513'};const base=n>8?n-8:n;return {fill:HUE_COLORS[base],stripe:n>8,label:String(n),text:'#fff'}}
+function typeName(t){return t==='cue'?'cue ball':t==='8'?'8-ball':t==='?'?'unknown ball':(parseInt(t,10)>8?t+' (stripe)':t+' (solid)')}
+// ---------- taps ----------
+function handleTap(t,f){
+ const hitR=2*BALL_R*1.6;
+ if(mode==='corner'){if(!f){setStatus('Tap the 4 table corners on the camera view, not the diagram.');return}
+  cornerTaps.push(f);if(cornerTaps.length<4){setStatus('Table corner '+cornerTaps.length+' of 4 set. Tap the next corner.');requestDraw();return}
+  snapshot();const q=orderQuad(cornerTaps);cornerTaps=[];setCalibration(q,chooseRot(q,1.3),'manual',0,true);saveSetup();markersChanged();
+  setStatus('Table corners set. If the diagram looks sideways, tap Rotate table.');return}
+ if(mode==='felt'){if(!f){setStatus('Tap bare felt on the camera view.');return}sampleFeltAt(f);return}
+ if(!t){return}
+ if(t.x<-6||t.y<-6||t.x>table.L+6||t.y>table.W+6){setStatus('That tap is outside the table area.');return}
+ if(mode==='pocket'||mode==='nextpocket'){snapshot();const k=nearestPocket(t);if(mode==='pocket')targetPocket=k;else nextPocket=k;markersChanged();setStatus((mode==='pocket'?'Target pocket':'Next pocket')+' set to P'+(k+1)+'.');return}
+ const near=nearestBall(t,hitR);
+ if(mode==='edit'){if(near){selectBall(near);setStatus('Selected '+typeName(near.type)+'. Choose the right type in the panel.')}else{selectBall(null);setStatus('No ball there. Tap closer to a ball.')}return}
+ snapshot();
+ if(near){assignRole(mode,near);markersChanged();setStatus((mode==='cue'?'Cue ball':mode==='object'?'Object ball':'Next ball')+' set to the '+typeName(near.type)+'.');return}
+ const cur=ballById(roles[mode]);
+ if(cur&&cur.src==='manual'&&mode!=='object'){cur.x=clamp(t.x,BALL_R,table.L-BALL_R);cur.y=clamp(t.y,BALL_R,table.W-BALL_R)}
+ else{const b=newBall(t,mode==='cue'?'cue':'?','manual');assignRole(mode,b)}
+ markersChanged();setStatus('Marker placed. Tap a ball or the felt to correct it.');
+}
+let lastPointerTap=0;
+function stagePointFromEvent(e){const r=canvas.getBoundingClientRect();return {x:e.clientX-r.left,y:e.clientY-r.top}}
+function onStageTap(e){if(!stream)return;const p=stagePointFromEvent(e);const f=stageToFrame(p);handleTap(applyH(H,f),f)}
+if(window.PointerEvent){canvas.addEventListener('pointerup',e=>{if(!stream)return;if(e.pointerType==='mouse'&&e.button!==0)return;e.preventDefault();lastPointerTap=Date.now();onStageTap(e)})}
+canvas.addEventListener('click',e=>{if(!stream)return;if(Date.now()-lastPointerTap<700)return;onStageTap(e)});
+let lastTopTap=0;
+function onTopTap(e){const r=topCanvas.getBoundingClientRect();const m=topMetrics();const x=(e.clientX-r.left-m.ox)/m.s,y=(e.clientY-r.top-m.oy)/m.s;handleTap({x:x,y:y},null)}
+if(window.PointerEvent){topCanvas.addEventListener('pointerup',e=>{if(e.pointerType==='mouse'&&e.button!==0)return;e.preventDefault();lastTopTap=Date.now();onTopTap(e)})}
+topCanvas.addEventListener('click',e=>{if(Date.now()-lastTopTap<700)return;onTopTap(e)});
+// ---------- ball editor ----------
+(function(){const sel=$('ballType');TYPE_LIST.forEach(t=>{const o=document.createElement('option');o.value=t;o.textContent=typeName(t);sel.appendChild(o)})})();
+function selectBall(b){selectedBall=b?b.id:null;$('ballEditor').hidden=!b;if(b)$('ballType').value=b.type;requestDraw()}
+$('ballType').addEventListener('change',()=>{const b=ballById(selectedBall);if(!b)return;snapshot();b.type=$('ballType').value;b.userType=true;markersChanged();setStatus('Ball set to '+typeName(b.type)+'.')});
+$('mkCue').addEventListener('click',()=>{const b=ballById(selectedBall);if(!b)return;snapshot();assignRole('cue',b);markersChanged()});
+$('mkObj').addEventListener('click',()=>{const b=ballById(selectedBall);if(!b)return;snapshot();assignRole('object',b);markersChanged()});
+$('mkNext').addEventListener('click',()=>{const b=ballById(selectedBall);if(!b)return;snapshot();assignRole('next',b);markersChanged()});
+$('delBall').addEventListener('click',()=>{const b=ballById(selectedBall);if(!b)return;snapshot();balls=balls.filter(x=>x!==b);['cue','object','next'].forEach(r=>{if(roles[r]===b.id)roles[r]=null});selectBall(null);markersChanged();setStatus('Ball removed.')});
+// ---------- Position play (true table coordinates, inches) ----------
+const DRAW_K=1.6, RAIL_LOSS=0.65, MAX_RAILS=3, ROLL_K=9;
+function cutInfo(C,O,Pk){const u=vunit(vsub(Pk,O)),G=vsub(O,vmul(u,2*BALL_R)),dCG=vlen(vsub(G,C));if(dCG<BALL_R)return null;const a=vunit(vsub(G,C));return {u:u,G:G,dCG:dCG,a:a,theta:Math.acos(clamp(vdot(a,u),-1,1))}}
+function autoPocket(C,O){const P=pocketsT();let k=null,bs=1e9;P.forEach((p,i)=>{const ci=cutInfo(C,O,p);if(!ci||ci.theta>75*Math.PI/180)return;const sc=ci.theta*180/Math.PI+0.15*vlen(vsub(p,O));if(sc<bs){bs=sc;k=i}});return k}
 function shotGeom(){
- const obj=lastOf(objects),pk=lastOf(pockets);if(!cue||!obj||!pk)return null;
- const {w,h}=dims();if(!w||!h)return null;
- const T=tableRect(),TL=Math.max(T.x1-T.x0,T.y1-T.y0),r=TL/88;
- const C=denorm(cue),O=denorm(obj),Pk=denorm(pk);
- const u=vunit(vsub(Pk,O)),G=vsub(O,vmul(u,2*r)),dCG=vlen(vsub(G,C));if(dCG<r)return null;
- const a=vunit(vsub(G,C)),cosT=clamp(vdot(a,u),-1,1),theta=Math.acos(cosT);
- const tr=vsub(a,vmul(u,vdot(a,u))),tl=vlen(tr),t=tl>1e-6?vmul(tr,1/tl):{x:0,y:0};
- const others=[];objects.forEach(o=>{if(o!==obj)others.push(denorm(o))});
- const pk2=[];pockets.forEach(p=>pk2.push(denorm(p)));if(nextPocket)pk2.push(denorm(nextPocket));
- let blocked=false;others.concat(nextBall?[denorm(nextBall)]:[]).forEach(b=>{if(segDist(b,C,G)<2*r)blocked=true});
- return {T:T,TL:TL,r:r,C:C,O:O,Pk:Pk,u:u,G:G,dCG:dCG,a:a,theta:theta,t:t,others:others,pocketsPx:pk2,N:nextBall?denorm(nextBall):null,blocked:blocked,objDist:vlen(vsub(Pk,O))};
+ const cb=ballById(roles.cue),ob=ballById(roles.object);if(!cb||!ob)return null;
+ let pi=targetPocket;const auto=pi===null||pi===undefined;if(auto)pi=autoPocket(cb,ob);if(pi===null)return null;
+ const Pk=pocketsT()[pi],ci=cutInfo(cb,ob,Pk);if(!ci)return null;
+ const tr=vsub(ci.a,vmul(ci.u,vdot(ci.a,ci.u))),tl=vlen(tr),t=tl>1e-6?vmul(tr,1/tl):{x:0,y:0};
+ const nb=ballById(roles.next);const others=[];balls.forEach(b=>{if(b!==cb&&b!==ob&&b!==nb)others.push({x:b.x,y:b.y})});
+ let blocked=false;others.concat(nb?[nb]:[]).forEach(b=>{if(segDist(b,cb,ci.G)<2*BALL_R)blocked=true});
+ return {T:{x0:0,y0:0,x1:table.L,y1:table.W},TL:table.L,r:BALL_R,C:{x:cb.x,y:cb.y},O:{x:ob.x,y:ob.y},Pk:Pk,pocketIndex:pi,autoPocket:auto,u:ci.u,G:ci.G,dCG:ci.dCG,a:ci.a,theta:ci.theta,t:t,others:others,pockets:pocketsT(),N:nb?{x:nb.x,y:nb.y}:null,blocked:blocked,objDist:vlen(vsub(Pk,ob))};
 }
-// Simulate the cue ball for power %, vertical (-100 draw..100 follow), side (-100 left..100 right)
 function simulate(g,pw,vert,side){
  const res={valid:true,path:[g.C,g.G],land:g.G,rails:0,running:null,scratch:false,collide:false,frozen:false,objOk:true};
  if(g.theta>80*Math.PI/180){res.valid=false;res.reason='cut too thin';return res}
@@ -294,7 +274,6 @@ function simulate(g,pw,vert,side){
  if(rem<=0){res.valid=false;res.reason='too soft to reach';return res}
  res.objOk=rem*Math.pow(Math.cos(g.theta),2)*0.9>=g.objDist;
  let s=vert/100;if(s<0)s*=Math.exp(-g.dCG/(1.5*g.TL));
- // after contact: tangent-line velocity (stun) blended with spin-driven motion along the original aim line (5/7 + 2/7 rule)
  const vt=vmul(g.t,Math.sin(g.theta)),vf=vadd(vmul(vt,5/7),vmul(g.a,2/7*DRAW_K*s)),sp=vlen(vf);
  let budget=rem*sp*sp;
  if(sp<1e-4||budget<g.r*0.5){finishSim(g,res);return res}
@@ -310,104 +289,290 @@ function simulate(g,pw,vert,side){
   pos=vadd(pos,vmul(dir,tHit));res.path.push(pos);res.rails++;
   if(res.rails>MAX_RAILS){res.frozen=true;break}
   const right={x:-dir.y,y:dir.x},kk=res.rails===1?1:res.rails===2?0.4:0.15;
-  if(tx<=ty){// side rail (vertical line): flip x, side spin bends y
-   const vn=Math.abs(dir.x);dir={x:-dir.x,y:dir.y};const add=e*kk*0.6*vn*right.y;
+  if(tx<=ty){const vn=Math.abs(dir.x);dir={x:-dir.x,y:dir.y};const add=e*kk*0.6*vn*right.y;
    if(res.rails===1&&Math.abs(e)>0.08&&Math.abs(dir.y)>0.05)res.running=(add*dir.y>0);dir.y+=add;dir.x=(dir.x>0?1:-1)*Math.max(Math.abs(dir.x),0.15);
-  }else{
-   const vn=Math.abs(dir.y);dir={x:dir.x,y:-dir.y};const add=e*kk*0.6*vn*right.x;
-   if(res.rails===1&&Math.abs(e)>0.08&&Math.abs(dir.x)>0.05)res.running=(add*dir.x>0);dir.x+=add;dir.y=(dir.y>0?1:-1)*Math.max(Math.abs(dir.y),0.15);
-  }
+  }else{const vn=Math.abs(dir.y);dir={x:dir.x,y:-dir.y};const add=e*kk*0.6*vn*right.x;
+   if(res.rails===1&&Math.abs(e)>0.08&&Math.abs(dir.x)>0.05)res.running=(add*dir.x>0);dir.x+=add;dir.y=(dir.y>0?1:-1)*Math.max(Math.abs(dir.y),0.15);}
   dir=vunit(dir);budget=(budget-tHit)*RAIL_LOSS;
  }
- res.land=res.path[res.path.length-1];
- finishSim(g,res);return res;
+ res.land=res.path[res.path.length-1];finishSim(g,res);return res;
 }
 function finishSim(g,res){
  const L=res.land,r=g.r,xmin=g.T.x0+r,xmax=g.T.x1-r,ymin=g.T.y0+r,ymax=g.T.y1-r;
  if(Math.min(L.x-xmin,xmax-L.x,L.y-ymin,ymax-L.y)<1.3*r)res.frozen=true;
- const balls=g.others.concat(g.N?[g.N]:[]);
+ const bl=g.others.concat(g.N?[g.N]:[]);
  for(let i=1;i<res.path.length-1;i++){const A=res.path[i],B=res.path[i+1];
-  g.pocketsPx.forEach(p=>{if(segDist(p,A,B)<1.8*r)res.scratch=true});
-  balls.forEach(b=>{if(segDist(b,A,B)<2*r)res.collide=true});
- }
- g.pocketsPx.forEach(p=>{if(vlen(vsub(p,L))<2.2*r)res.scratch=true});
+  g.pockets.forEach(p=>{if(segDist(p,A,B)<1.8*r)res.scratch=true});bl.forEach(b=>{if(segDist(b,A,B)<2*r)res.collide=true})}
+ g.pockets.forEach(p=>{if(vlen(vsub(p,L))<2.2*r)res.scratch=true});
 }
-// How good is the next shot (next ball -> next pocket) from a landing spot
 function leaveScore(g,L){
- if(!g.N)return null;const cands=nextPocket?[{p:denorm(nextPocket),label:'the next pocket (NP)'}]:pockets.map((p,i)=>({p:denorm(p),label:'pocket P'+(i+1)}));
+ if(!g.N)return null;const P=pocketsT();const cands=(nextPocket!==null&&nextPocket!==undefined)?[{p:P[nextPocket],label:'the next pocket (P'+(nextPocket+1)+')'}]:P.map((p,i)=>({p:p,label:'pocket P'+(i+1)}));
  let best=null;
- cands.forEach(c=>{
-  const uN=vunit(vsub(c.p,g.N)),G2=vsub(g.N,vmul(uN,2*g.r)),d2=vlen(vsub(G2,L));
-  let sc=0,phi=90;
+ cands.forEach(c=>{const uN=vunit(vsub(c.p,g.N)),G2=vsub(g.N,vmul(uN,2*g.r)),d2=vlen(vsub(G2,L));let sc=0,phi=90;
   if(d2>1.5*g.r){const a2=vunit(vsub(G2,L));phi=Math.acos(clamp(vdot(a2,uN),-1,1))*180/Math.PI;
-   if(phi<78){const ang=phi<=15?0.8+0.2*phi/15:phi<=35?1:Math.max(0,1-(phi-35)/43);
-    const dn=d2/g.TL,ds=dn<0.08?0.3+0.7*dn/0.08:dn<=0.4?1:Math.max(0.2,1-(dn-0.4)*1.2);
-    sc=ang*(0.5+0.5*ds);
-    let blk=false;g.others.forEach(b=>{if(segDist(b,L,G2)<2*g.r||segDist(b,g.N,c.p)<2*g.r)blk=true});if(blk)sc*=0.3;}
-  }else sc=0.1;
-  if(!best||sc>best.score)best={score:sc,cut:phi,pocket:c.label,ghost:G2,dist:d2};
- });
+   if(phi<78){const ang=phi<=15?0.8+0.2*phi/15:phi<=35?1:Math.max(0,1-(phi-35)/43);const dn=d2/g.TL,ds=dn<0.08?0.3+0.7*dn/0.08:dn<=0.4?1:Math.max(0.2,1-(dn-0.4)*1.2);
+    sc=ang*(0.5+0.5*ds);let blk=false;g.others.forEach(b=>{if(segDist(b,L,G2)<2*g.r||segDist(b,g.N,c.p)<2*g.r)blk=true});if(blk)sc*=0.3}}else sc=0.1;
+  if(!best||sc>best.score)best={score:sc,cut:phi,pocket:c.label,ghost:G2,dist:d2}});
  return best;
 }
-function evalCandidate(g,pw,v,s){
- const res=simulate(g,pw,v,s);if(!res.valid||!res.objOk)return {res:res,total:-9};
- const ls=leaveScore(g,res.land);let total=ls?ls.score:0;
- if(res.scratch)total-=1.2;if(res.collide)total-=0.5;if(res.frozen)total-=0.25;
- total-=0.12*pw/100+0.06*Math.abs(v)/100+0.08*Math.abs(s)/100;
- return {res:res,leave:ls,total:total,power:pw,vertical:v,spin:s};
-}
+function evalCandidate(g,pw,v,s){const res=simulate(g,pw,v,s);if(!res.valid||!res.objOk)return {res:res,total:-9};const ls=leaveScore(g,res.land);let total=ls?ls.score:0;
+ if(res.scratch)total-=1.2;if(res.collide)total-=0.5;if(res.frozen)total-=0.25;total-=0.12*pw/100+0.06*Math.abs(v)/100+0.08*Math.abs(s)/100;return {res:res,leave:ls,total:total,power:pw,vertical:v,spin:s}}
 function vertWords(v){if(v<=-60)return 'well below center (strong draw)';if(v<=-25)return 'below center (draw)';if(v<-8)return 'slightly below center (a touch of draw)';if(v<=8)return 'dead center (stun)';if(v<25)return 'slightly above center (a touch of follow)';if(v<60)return 'above center (follow)';return 'high on the cue ball (strong follow)'}
 function sideWords(s,running){if(Math.abs(s)<=8)return 'no side spin';const sd=s>0?'right':'left',m=Math.abs(s);return (m<=25?'a little ':m<=45?'':'a lot of ')+sd+' English'+(running===true?' (running off the first rail)':running===false?' (reverse off the first rail)':'')}
-function readyForPosition(){return !!(cue&&objects.length&&pockets.length&&nextBall)}
+function readyForPosition(){return !!(ballById(roles.cue)&&ballById(roles.object)&&ballById(roles.next))}
 function runSuggest(auto){
- const el=document.getElementById('positionSummary');
- if(!readyForPosition()){suggestion=null;el.innerHTML='Position play needs the cue ball, an object ball, a target pocket and the <b>Next ball</b>. Place the missing markers, then tap <b>Suggest position</b>.';if(!auto)setStatus('Place cue ball, object ball, pocket and next ball first.');updatePosMetrics();draw();return}
- const g=shotGeom();if(!g){suggestion=null;el.textContent='The cue ball is too close to the object ball to plan this shot.';draw();return}
+ const el=$('positionSummary');
+ if(!readyForPosition()){suggestion=null;el.innerHTML='Position play needs a cue ball, an object ball and the <b>Next ball</b>. Pick them (tap detected balls in Cue / Object / Next mode, or place markers), then tap <b>Suggest position</b>.';if(!auto)setStatus('Pick the cue ball, object ball and next ball first.');updatePosMetrics();requestDraw();return}
+ const g=shotGeom();if(!g){suggestion=null;el.textContent='No makeable pocket for this object ball from here (or the cue ball is touching it). Pick a target pocket or move the markers.';updatePosMetrics();requestDraw();return}
  let best=null;
  for(let pw=15;pw<=100;pw+=5)for(let v=-100;v<=100;v+=10)for(let s=-60;s<=60;s+=20){const c=evalCandidate(g,pw,v,s);if(!best||c.total>best.total+1e-9)best=c}
- if(!best||best.total<0.05){suggestion=null;
-  el.innerHTML=(g.theta>80*Math.PI/180?'This cut is too thin to plan position for. ':'')+'No reliable position found from this layout. Consider a softer shot that just pockets the ball, or play safe.'+(g.blocked?' Note: another ball looks like it is in the way of the cue ball.':'');
-  updatePosMetrics();draw();return}
- suggestion={power:best.power,vertical:best.vertical,spin:best.spin,land:best.res.land,leave:best.leave,total:best.total,res:best.res,r:g.r,TL:g.TL};
+ if(!best||best.total<0.05){suggestion=null;el.textContent=(g.theta>80*Math.PI/180?'This cut is too thin to plan position for. ':'')+'No reliable position found from this layout. Consider a softer shot that just pockets the ball, or play safe.'+(g.blocked?' Note: another ball looks like it is in the way of the cue ball.':'');updatePosMetrics();requestDraw();return}
+ suggestion={power:best.power,vertical:best.vertical,spin:best.spin,land:best.res.land,leave:best.leave,total:best.total};
  power.value=best.power;vertical.value=best.vertical;spin.value=best.spin;
- const lv=best.leave,bw=Math.max(1,Math.round(lv.dist/(2*g.r)));
- let txt='Hit '+vertWords(best.vertical)+' with '+sideWords(best.spin,best.res.running)+' at about '+best.power+'% power; the cue ball should stop in the green circle, about '+bw+' ball-width'+(bw===1?'':'s')+' from the next ball, for a '+Math.round(lv.cut)+'° cut into '+lv.pocket+'.';
+ const lv=best.leave,bw=Math.max(1,Math.round(lv.dist/(2*BALL_R)));
+ let txt=(g.autoPocket?'Shoot the object ball into pocket P'+(g.pocketIndex+1)+'. ':'')+'Hit '+vertWords(best.vertical)+' with '+sideWords(best.spin,best.res.running)+' at about '+best.power+'% power; the cue ball should stop in the green circle, about '+bw+' ball-width'+(bw===1?'':'s')+(calib.corners?' ('+Math.round(lv.dist)+' in)':'')+' from the next ball, for a '+Math.round(lv.cut)+'° cut into '+lv.pocket+'.';
  const warn=[];if(best.res.frozen)warn.push('it may end up close to a rail');if(best.res.collide)warn.push('the path brushes another ball');if(best.res.scratch)warn.push('scratch risk');if(g.blocked)warn.push('another ball may block the cue ball on the way to the object ball');
- if(warn.length)txt+=' Watch out: '+warn.join(', ')+'.';
- if(best.total<0.35)txt+=' This is a tough layout, so the suggestion is a best guess.';
- el.textContent=txt;
- updateControls();updatePosMetrics();
- if(!auto)setStatus('Position suggestion ready. Adjust the sliders to see how the predicted path changes.');
+ if(warn.length)txt+=' Watch out: '+warn.join(', ')+'.';if(best.total<0.35)txt+=' This is a tough layout, so the suggestion is a best guess.';
+ el.textContent=txt;updateControls();updatePosMetrics();if(!auto)setStatus('Position suggestion ready. Adjust the sliders to see how the predicted path changes.');
 }
-function updatePosMetrics(){
- const nc=document.getElementById('nextCutMetric'),pm=document.getElementById('positionMetric');
- if(suggestion&&suggestion.leave){nc.textContent=Math.round(suggestion.leave.cut)+'°';const q=suggestion.total;pm.textContent=q>=0.75?'Good':q>=0.45?'OK':'Tough'}else{nc.textContent='—°';pm.textContent='—'}
+function updatePosMetrics(){const nc=$('nextCutMetric'),pm=$('positionMetric');if(suggestion&&suggestion.leave){nc.textContent=Math.round(suggestion.leave.cut)+'°';const q=suggestion.total;pm.textContent=q>=0.75?'Good':q>=0.45?'OK':'Tough'}else{nc.textContent='—°';pm.textContent='—'}}
+function updateManualText(){const el=$('manualSummary');const g=readyForPosition()?shotGeom():null;if(!g){el.textContent='';return}
+ const res=simulate(g,Number(power.value),Number(vertical.value),Number(spin.value));if(!res.valid){el.textContent='With your current settings: '+res.reason+'.';return}
+ const ls=leaveScore(g,res.land),bits=[];if(!res.objOk)bits.push('the object ball may not reach the pocket');if(res.scratch)bits.push('scratch risk');if(res.collide)bits.push('cue ball hits another ball');if(res.frozen)bits.push('ends near a rail');
+ el.textContent='With your current slider settings (pink path): '+(ls&&ls.cut<78?'about a '+Math.round(ls.cut)+'° cut on the next ball':'no clear shot on the next ball')+(res.rails?', '+res.rails+' rail'+(res.rails===1?'':'s'):'')+(bits.length?'; '+bits.join(', '):'')+'.'}
+function updateMetrics(){const g=shotGeom();if(!g){$('angleMetric').textContent='—°';$('distanceMetric').textContent='—';return}
+ $('angleMetric').textContent=Math.round(g.theta*180/Math.PI)+'°';$('distanceMetric').textContent=Math.round(g.dCG)+' in'+(calib.corners?'':' (uncal.)')}
+function updateTableHint(){const el=$('tableHint');el.textContent=calib.src==='none'?'Table: not calibrated, so the camera frame is used as a rough table. Tap "Detect table" (or tap the 4 corners) so angles, rails and pockets match the real table.':'Table: '+table.size+' ft, '+(calib.src==='auto'||calib.src==='tracking'?'found automatically from the felt color':calib.src==='saved'?'saved setup':'from your 4 corner taps')+'. If the top-down diagram looks turned, tap Rotate table.'}
+function markersChanged(){updateTableHint();updateMetrics();runSuggest(true);updateManualText();requestDraw()}
+// ---------- rendering (shared by camera overlay and top-down diagram) ----------
+function drawScene(g2,M,rad,top){
+ const P=pocketsT();
+ // table outline
+ const tc=[{x:0,y:0},{x:table.L,y:0},{x:table.L,y:table.W},{x:0,y:table.W}].map(M);
+ if(!top){g2.save();g2.strokeStyle=calib.corners?'rgba(165,247,255,.7)':'rgba(165,247,255,.3)';g2.setLineDash(calib.corners?[]:[4,6]);g2.lineWidth=1.5;g2.beginPath();tc.forEach((p,i)=>{if(i)g2.lineTo(p.x,p.y);else g2.moveTo(p.x,p.y)});g2.closePath();g2.stroke();g2.restore()}
+ // pockets
+ const geom=shotGeom();
+ P.forEach((p,i)=>{const q=M(p),rr=Math.max(5,rad(p)*2.1);g2.beginPath();g2.arc(q.x,q.y,rr,0,Math.PI*2);g2.fillStyle=top?'#050505':'rgba(0,0,0,.45)';g2.fill();
+  const isT=geom&&geom.pocketIndex===i,isN=nextPocket===i;g2.lineWidth=isT||isN?2.5:1;g2.strokeStyle=isT?'#83f28f':isN?'#5ab0ff':'rgba(131,242,143,.5)';g2.stroke();
+  g2.fillStyle=isN?'#5ab0ff':'#83f28f';g2.font='bold 10px system-ui';g2.textAlign='center';g2.textBaseline='middle';g2.fillText(isN?'NP':'P'+(i+1),q.x,q.y)});
+ // suggestion + predicted path
+ if(geom){
+  if(suggestion){const L=suggestion.land,zr=Math.max(4,table.L*0.055);g2.beginPath();for(let k=0;k<=28;k++){const a=k/28*Math.PI*2,q=M({x:L.x+zr*Math.cos(a),y:L.y+zr*Math.sin(a)});if(k)g2.lineTo(q.x,q.y);else g2.moveTo(q.x,q.y)}
+   g2.fillStyle='rgba(131,242,143,.22)';g2.fill();g2.strokeStyle='rgba(131,242,143,.85)';g2.lineWidth=1.5;g2.stroke();
+   if(suggestion.leave){const a=M(L),b=M(suggestion.leave.ghost);g2.save();g2.setLineDash([2,5]);g2.strokeStyle='rgba(90,176,255,.7)';g2.lineWidth=1.5;g2.beginPath();g2.moveTo(a.x,a.y);g2.lineTo(b.x,b.y);g2.stroke();g2.restore()}}
+  // aim: object -> pocket, cue -> ghost
+  arrowP(g2,M(geom.O),M(geom.Pk),'#83f28f');arrowP(g2,M(geom.C),M(geom.G),'#ffbd69');
+  const gq=M(geom.G);g2.beginPath();g2.arc(gq.x,gq.y,Math.max(5,rad(geom.G)),0,Math.PI*2);g2.strokeStyle='#ffbd69';g2.lineWidth=2;g2.setLineDash([3,3]);g2.stroke();g2.setLineDash([]);
+  if(readyForPosition()){const res=simulate(geom,Number(power.value),Number(vertical.value),Number(spin.value));
+   if(res.valid){const pth=res.path.slice(1).map(M);g2.save();g2.setLineDash([3,5]);g2.strokeStyle='#ff7ad9';g2.lineWidth=2.5;g2.beginPath();g2.moveTo(pth[0].x,pth[0].y);for(let i=1;i<pth.length;i++)g2.lineTo(pth[i].x,pth[i].y);g2.stroke();g2.restore();
+    for(let i=1;i<pth.length-1;i++){g2.beginPath();g2.arc(pth[i].x,pth[i].y,3,0,Math.PI*2);g2.fillStyle='#ff7ad9';g2.fill()}
+    const Lq=M(res.land);g2.beginPath();g2.arc(Lq.x,Lq.y,Math.max(5,rad(res.land))+2,0,Math.PI*2);g2.strokeStyle='#ff7ad9';g2.lineWidth=2;g2.stroke()}}
+ }
+ // balls
+ balls.forEach(b=>{const q=M(b),rr=Math.max(top?4:6,rad(b));const lk=ballLook(b.type);
+  g2.beginPath();g2.arc(q.x,q.y,rr,0,Math.PI*2);g2.fillStyle=lk.stripe?'#f4f4ee':lk.fill;g2.fill();
+  if(lk.stripe){g2.save();g2.beginPath();g2.arc(q.x,q.y,rr,0,Math.PI*2);g2.clip();g2.fillStyle=lk.fill;g2.fillRect(q.x-rr,q.y-rr*0.5,rr*2,rr);g2.restore()}
+  const role=roleOf(b);g2.lineWidth=role?3:1.5;g2.strokeStyle=role==='cue'?'#a5f7ff':role==='object'?'#ffbd69':role==='next'?'#5ab0ff':selectedBall===b.id?'#ff7ad9':'rgba(255,255,255,.75)';g2.beginPath();g2.arc(q.x,q.y,rr+(role?1.5:0),0,Math.PI*2);g2.stroke();
+  if(selectedBall===b.id){g2.beginPath();g2.arc(q.x,q.y,rr+5,0,Math.PI*2);g2.strokeStyle='#ff7ad9';g2.lineWidth=2;g2.stroke()}
+  if(lk.label){g2.fillStyle=lk.stripe?'#101513':lk.text;g2.font='bold '+(rr>9?11:9)+'px system-ui';g2.textAlign='center';g2.textBaseline='middle';g2.fillText(lk.label,q.x,q.y)}
+  if(role){g2.fillStyle=role==='cue'?'#a5f7ff':role==='object'?'#ffbd69':'#5ab0ff';g2.font='bold 10px system-ui';g2.textAlign='center';g2.textBaseline='bottom';g2.fillText(role==='cue'?'CUE':role==='object'?'OBJ':'NEXT',q.x,q.y-rr-3)}
+ });
 }
-function updateManualText(){
- const el=document.getElementById('manualSummary');if(!el)return;
- const g=readyForPosition()?shotGeom():null;if(!g){el.textContent='';return}
- const res=simulate(g,Number(power.value),Number(vertical.value),Number(spin.value));
- if(!res.valid){el.textContent='With your current settings: '+res.reason+'.';return}
- const ls=leaveScore(g,res.land);const bits=[];
- if(!res.objOk)bits.push('the object ball may not reach the pocket');if(res.scratch)bits.push('scratch risk');if(res.collide)bits.push('cue ball hits another ball');if(res.frozen)bits.push('ends near a rail');
- el.textContent='With your current slider settings (pink path): '+(ls&&ls.cut<78?'about a '+Math.round(ls.cut)+'° cut on the next ball':'no clear shot on the next ball')+(res.rails?', '+res.rails+' rail'+(res.rails===1?'':'s'):'')+(bits.length?'; '+bits.join(', '):'')+'.';
+function arrowP(g2,A,B,color){g2.beginPath();g2.setLineDash([7,5]);g2.moveTo(A.x,A.y);g2.lineTo(B.x,B.y);g2.strokeStyle=color;g2.lineWidth=2;g2.stroke();g2.setLineDash([]);
+ const ang=Math.atan2(B.y-A.y,B.x-A.x),len=10;g2.beginPath();g2.moveTo(B.x,B.y);g2.lineTo(B.x-len*Math.cos(ang-.45),B.y-len*Math.sin(ang-.45));g2.lineTo(B.x-len*Math.cos(ang+.45),B.y-len*Math.sin(ang+.45));g2.closePath();g2.fillStyle=color;g2.fill()}
+function drawOverlay(){const {w,h}=dims();ctx.clearRect(0,0,w,h);if(!H)return;
+ const M=t=>tableToStage(t),rad=t=>{const a=M(t),b=M({x:t.x+BALL_R,y:t.y}),c=M({x:t.x,y:t.y+BALL_R});return (vlen(vsub(b,a))+vlen(vsub(c,a)))/2};
+ drawScene(ctx,M,rad,false);
+ cornerTaps.forEach((f,i)=>{const q=frameToStage(f);ctx.strokeStyle='#a5f7ff';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(q.x-8,q.y);ctx.lineTo(q.x+8,q.y);ctx.moveTo(q.x,q.y-8);ctx.lineTo(q.x,q.y+8);ctx.stroke();ctx.fillStyle='#a5f7ff';ctx.font='10px system-ui';ctx.textAlign='left';ctx.textBaseline='bottom';ctx.fillText('T'+(i+1),q.x+5,q.y-3)});
 }
-function drawPosition(){
- if(!readyForPosition()&&!corners.length)return;
- const T=tableRect();
- if(nextBall||corners.length){ctx.save();ctx.setLineDash([4,6]);ctx.strokeStyle='rgba(165,247,255,.35)';ctx.lineWidth=1;ctx.strokeRect(T.x0,T.y0,T.x1-T.x0,T.y1-T.y0);ctx.restore()}
- const g=readyForPosition()?shotGeom():null;if(!g)return;
- if(suggestion){const L=suggestion.land;ctx.beginPath();ctx.arc(L.x,L.y,Math.max(14,g.TL*0.055),0,Math.PI*2);ctx.fillStyle='rgba(131,242,143,.22)';ctx.fill();ctx.strokeStyle='rgba(131,242,143,.8)';ctx.lineWidth=1.5;ctx.stroke();
-  if(suggestion.leave){ctx.save();ctx.setLineDash([2,5]);ctx.strokeStyle='rgba(90,176,255,.6)';ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(L.x,L.y);ctx.lineTo(suggestion.leave.ghost.x,suggestion.leave.ghost.y);ctx.stroke();ctx.restore()}}
- const res=simulate(g,Number(power.value),Number(vertical.value),Number(spin.value));if(!res.valid)return;
- const pth=res.path.slice(1);ctx.save();ctx.setLineDash([3,5]);ctx.strokeStyle='#ff7ad9';ctx.lineWidth=2.5;ctx.beginPath();ctx.moveTo(pth[0].x,pth[0].y);for(let i=1;i<pth.length;i++)ctx.lineTo(pth[i].x,pth[i].y);ctx.stroke();ctx.restore();
- for(let i=1;i<pth.length-1;i++){ctx.beginPath();ctx.arc(pth[i].x,pth[i].y,3,0,Math.PI*2);ctx.fillStyle='#ff7ad9';ctx.fill()}
- const L=res.land;ctx.beginPath();ctx.arc(L.x,L.y,g.r+2,0,Math.PI*2);ctx.strokeStyle='#ff7ad9';ctx.lineWidth=2;ctx.stroke();
+function topMetrics(){const cw=topCanvas.clientWidth||300,pad=Math.max(14,cw*0.045);const s=(cw-2*pad)/table.L;return {s:s,ox:pad,oy:pad,w:cw,h:Math.round(table.W*s+2*pad)}}
+function sizeTop(){const m=topMetrics();const dpr=Math.min(window.devicePixelRatio||1,2);topCanvas.width=Math.round(m.w*dpr);topCanvas.height=Math.round(m.h*dpr);topCanvas.style.height=m.h+'px';tctx.setTransform(dpr,0,0,dpr,0,0)}
+function drawTop(){if(!showTop)return;const m=topMetrics();if(Math.abs(topCanvas.height/Math.min(window.devicePixelRatio||1,2)-m.h)>1)sizeTop();
+ const g2=tctx;g2.clearRect(0,0,m.w,m.h);g2.fillStyle='#4a2c17';g2.fillRect(0,0,m.w,m.h);
+ g2.fillStyle='#0f6b3a';g2.fillRect(m.ox,m.oy,table.L*m.s,table.W*m.s);g2.strokeStyle='#0a4a28';g2.lineWidth=3;g2.strokeRect(m.ox,m.oy,table.L*m.s,table.W*m.s);
+ g2.fillStyle='rgba(255,255,255,.55)';for(let i=1;i<8;i++){if(i===4)continue;const x=m.ox+table.L*m.s*i/8;g2.beginPath();g2.arc(x,m.oy/2,1.8,0,7);g2.fill();g2.beginPath();g2.arc(x,m.oy+table.W*m.s+m.oy/2,1.8,0,7);g2.fill()}
+ for(let i=1;i<4;i++){const y=m.oy+table.W*m.s*i/4;g2.beginPath();g2.arc(m.ox/2,y,1.8,0,7);g2.fill();g2.beginPath();g2.arc(m.ox+table.L*m.s+m.ox/2,y,1.8,0,7);g2.fill()}
+ drawScene(g2,t=>({x:m.ox+t.x*m.s,y:m.oy+t.y*m.s}),()=>BALL_R*m.s,true);
+ if(!calib.corners){g2.fillStyle='rgba(255,255,255,.7)';g2.font='11px system-ui';g2.textAlign='left';g2.textBaseline='top';g2.fillText('Uncalibrated: positions are rough',m.ox+6,m.oy+4)}}
+function frameLoop(){if(dirty){dirty=false;try{drawOverlay();drawTop()}catch(e){console.warn('draw',e)}}requestAnimationFrame(frameLoop)}
+function sizeCanvas(){const r=stage.getBoundingClientRect();const dpr=Math.min(window.devicePixelRatio||1,2);canvas.width=Math.round(r.width*dpr);canvas.height=Math.round(r.height*dpr);canvas.style.width=r.width+'px';canvas.style.height=r.height+'px';ctx.setTransform(dpr,0,0,dpr,0,0);computeH();sizeTop();requestDraw()}
+// ---------- controls ----------
+function renderCueGraphic(){const c=$('cueGraphic'),g=c.getContext('2d');g.clearRect(0,0,c.width,c.height);g.fillStyle='#111915';g.fillRect(0,0,c.width,c.height);const x=130,y=86,r=57;
+ const grad=g.createRadialGradient(x-17,y-20,4,x,y,r);grad.addColorStop(0,'#fff');grad.addColorStop(1,'#b9c3be');g.beginPath();g.arc(x,y,r,0,Math.PI*2);g.fillStyle=grad;g.fill();g.strokeStyle='#e8eee9';g.lineWidth=2;g.stroke();
+ g.strokeStyle='#64756a';g.setLineDash([3,4]);g.beginPath();g.moveTo(x-r,y);g.lineTo(x+r,y);g.moveTo(x,y-r);g.lineTo(x,y+r);g.stroke();g.setLineDash([]);
+ const sx=spin.value/100,vy=vertical.value/100,px=x+sx*r*.72,py=y-vy*r*.72;g.beginPath();g.arc(px,py,7,0,Math.PI*2);g.fillStyle='#ffbd69';g.fill();g.strokeStyle='#fff0d7';g.stroke();
+ g.fillStyle='#aab8af';g.font='11px system-ui';g.textAlign='center';g.fillText('CUE-BALL CONTACT',130,164)}
+function updateControls(){$('powerLabel').textContent=power.value+'%';const s=Number(spin.value),v=Number(vertical.value);
+ $('spinLabel').textContent=s<-8?'Left '+Math.abs(s)+'%':s>8?'Right '+s+'%':'Center';$('verticalLabel').textContent=v<-8?'Draw '+Math.abs(v)+'%':v>8?'Follow '+v+'%':'Center';renderCueGraphic();updateManualText();requestDraw()}
+[power,spin,vertical].forEach(x=>x.addEventListener('input',updateControls));
+$('cueGraphic').addEventListener('click',e=>{const r=e.currentTarget.getBoundingClientRect();const x=(e.clientX-r.left)/r.width*260,y=(e.clientY-r.top)/r.height*180;spin.value=Math.round(clamp((x-130)/57,-1,1)*100);vertical.value=Math.round(clamp((86-y)/57,-1,1)*100);updateControls()});
+document.querySelectorAll('[data-mode]').forEach(b=>b.addEventListener('click',()=>setMode(b.dataset.mode)));
+function setMode(m){const prev=mode;mode=m;modeSelect.value=m;document.querySelectorAll('[data-mode]').forEach(b=>b.classList.toggle('active',b.dataset.mode===m));if(m==='corner'&&prev!=='corner'){cornerTaps=[];setStatus('Tap the 4 corners of the playing surface (where the cushions meet at the corner pockets).')}if(m==='felt')setStatus('Tap a patch of bare felt on the camera view.');if(m!=='edit')selectBall(null)}
+modeSelect.addEventListener('change',()=>setMode(modeSelect.value));
+$('undoBtn').addEventListener('click',restoreLast);
+$('clearBtn').addEventListener('click',()=>{snapshot();balls=[];roles={cue:null,object:null,next:null};targetPocket=null;nextPocket=null;selectBall(null);markersChanged();setStatus('Balls cleared (table calibration kept).')});
+$('suggestBtn').addEventListener('click',()=>runSuggest(false));
+$('rotateBtn').addEventListener('click',()=>{const c=calib.corners||defaultCorners();snapshot();const rot=((calib.corners?calib.rot:chooseRot(c,1))+1)%4;setCalibration(c,rot,calib.corners?calib.src:'manual',calib.corners?calib.inset:0,true);if(calib.corners)saveSetup();markersChanged();setStatus('Table rotated. The long rails now run the other way.')});
+$('tableSize').addEventListener('change',()=>setTableSize($('tableSize').value,false));
+$('forgetBtn').addEventListener('click',()=>{try{localStorage.removeItem(SETUP_KEY)}catch(e){}savedBtn.hidden=true;setStatus('Saved setup forgotten.')});
+topBtn.addEventListener('click',()=>{showTop=!showTop;topWrap.hidden=!showTop;topBtn.classList.toggle('active',showTop);topBtn.textContent='Top-down view: '+(showTop?'on':'off');sizeCanvas()});
+// ---------- camera ----------
+async function startCamera(){
+ if(stream)return true;
+ try{
+  stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:960}},audio:false});
+  video.srcObject=stream;video.hidden=false;placeholder.hidden=true;canvas.hidden=false;startBtn.disabled=true;stopBtn.disabled=false;detectBtn.disabled=false;tableBtn.disabled=false;trackBtn.disabled=false;autoTableBtn.disabled=false;
+  video.setAttribute('playsinline','');video.setAttribute('webkit-playsinline','');video.muted=true;
+  video.addEventListener('loadedmetadata',sizeCanvas,{once:true});
+  try{await video.play()}catch(pe){console.warn('video.play failed',pe)}
+  if(video.readyState>=1)sizeCanvas();setTimeout(sizeCanvas,300);
+  setStatus(calib.corners?'Camera running with your table setup. Tap Detect balls, or turn on Auto track.':'Camera running. Tap Detect table (or tap the 4 corners), then Detect balls.');return true;
+ }catch(err){setStatus('Camera could not start: '+err.message+'. Use HTTPS or localhost and allow camera permission.');return false}
 }
-function markersChanged(){updateTableHint();draw();updateMetrics();if(readyForPosition())runSuggest(true);else{suggestion=null;runSuggest(true)}updateManualText()}
-window.poolTest={set:function(st){snapshot();cue=st.cue||null;objects=st.objects||[];pockets=st.pockets||[];nextBall=st.nextBall||null;nextPocket=st.nextPocket||null;corners=st.corners||[];markersChanged()},get:function(){return {suggestion:suggestion,summary:document.getElementById('positionSummary').textContent,manual:document.getElementById('manualSummary').textContent,power:power.value,spin:spin.value,vertical:vertical.value}},sim:function(p,v,s){const g=shotGeom();return g?simulate(g,p,v,s):null}};
-
-loadOpenCV();renderCueGraphic();updateControls();sizeCanvas();updateTableHint();
+startBtn.addEventListener('click',startCamera);
+stopBtn.addEventListener('click',()=>{if(stream)stream.getTracks().forEach(t=>t.stop());stream=null;video.srcObject=null;video.hidden=true;canvas.hidden=true;placeholder.hidden=false;startBtn.disabled=false;stopBtn.disabled=true;detectBtn.disabled=true;tableBtn.disabled=true;trackBtn.disabled=true;autoTableBtn.disabled=true;setToggle('track',false);setToggle('table',false);setStatus('Camera stopped. Markers retained.')});
+savedBtn.addEventListener('click',async()=>{if(applySaved()){await startCamera();setStatus('Saved table setup loaded. Check that the outline matches the table; tap Detect table if the phone moved.')}else setStatus('No saved setup found.')});
+window.addEventListener('resize',sizeCanvas);window.addEventListener('orientationchange',()=>setTimeout(sizeCanvas,300));video.addEventListener('loadedmetadata',sizeCanvas);video.addEventListener('resize',sizeCanvas);
+// ---------- OpenCV loading ----------
+function markCvReady(){if(cvReady)return;cvReady=true;setStatus('OpenCV.js ready. Tap Detect table, then Detect balls (or turn on Auto track).')}
+function initCv(){const c=window.cv;if(!c)return false;
+ if(typeof c.then==='function'){try{c.then(m=>{window.cv=m;if(m&&m.Mat)markCvReady();else if(m)m.onRuntimeInitialized=markCvReady},()=>setStatus('OpenCV.js failed to initialize. Manual placement still works.'))}catch(e){c.onRuntimeInitialized=markCvReady}return true}
+ if(c.Mat){markCvReady();return true}c.onRuntimeInitialized=markCvReady;return true}
+const CV_SOURCES=['opencv.js','https://docs.opencv.org/4.9.0/opencv.js','https://cdn.jsdelivr.net/npm/@techstark/opencv-js@4.10.0-release.1/dist/opencv.js'];
+function loadOpenCV(i){i=i||0;if(i>=CV_SOURCES.length){setStatus('OpenCV.js did not load. Manual placement still works.');return}
+ const s=document.createElement('script');s.async=true;s.src=CV_SOURCES[i];s.onload=()=>{if(!initCv())loadOpenCV(i+1)};s.onerror=()=>{s.remove();loadOpenCV(i+1)};document.head.appendChild(s)}
+// ---------- color helpers ----------
+function rgb2hsv(r,g,b){r/=255;g/=255;b/=255;const mx=Math.max(r,g,b),mn=Math.min(r,g,b),d=mx-mn;let h=0;if(d>1e-6){if(mx===r)h=((g-b)/d)%6;else if(mx===g)h=(b-r)/d+2;else h=(r-g)/d+4;h*=60;if(h<0)h+=360}return {h:h,s:mx?d/mx:0,v:mx}}
+function grabFrame(maxW){const fw=video.videoWidth,fh=video.videoHeight;if(!fw||!fh)return null;const s=Math.min(1,maxW/fw),w=Math.round(fw*s),h=Math.round(fh*s);
+ const c=frameCanvasEl||(frameCanvasEl=document.createElement('canvas'));if(c.width!==w)c.width=w;if(c.height!==h)c.height=h;const g=c.getContext('2d',{willReadFrequently:true});g.drawImage(video,0,0,w,h);return {c:c,g:g,w:w,h:h}}
+function sampleFeltAt(f){const fr=grabFrame(480);if(!fr){setStatus('Start the camera first.');return}
+ const x=clamp(Math.round(f.x*fr.w),3,fr.w-4),y=clamp(Math.round(f.y*fr.h),3,fr.h-4);const d=fr.g.getImageData(x-3,y-3,7,7).data;const hs=[],ss=[],vs=[];
+ for(let i=0;i<d.length;i+=4){const c=rgb2hsv(d[i],d[i+1],d[i+2]);hs.push(c.h);ss.push(c.s);vs.push(c.v)}const med=a=>a.slice().sort((p,q)=>p-q)[a.length>>1];
+ feltHSV=[med(hs)/2,med(ss)*255,med(vs)*255];saveSetup();setStatus('Felt color sampled (hue '+Math.round(med(hs))+'°).'+(cvReady?' Finding the table…':''));if(cvReady)setTimeout(()=>runTableDetection(false),30)}
+function feltMask(hsv,mats){const f=feltHSV,sLo=Math.max(35,f[1]*0.45),vLo=Math.max(25,f[2]*0.3),dh=14;const ranges=[];const lo=f[0]-dh,hi=f[0]+dh;
+ if(lo<0){ranges.push([0,hi]);ranges.push([180+lo,180])}else if(hi>180){ranges.push([lo,180]);ranges.push([0,hi-180])}else ranges.push([lo,hi]);
+ const mask=new cv.Mat();mats.push(mask);ranges.forEach((r,i)=>{const l=new cv.Mat(hsv.rows,hsv.cols,hsv.type(),[r[0],sLo,vLo,0]),u=new cv.Mat(hsv.rows,hsv.cols,hsv.type(),[r[1],255,255,255]),m=new cv.Mat();mats.push(l,u,m);cv.inRange(hsv,l,u,m);if(i===0)m.copyTo(mask);else cv.bitwise_or(mask,m,mask)});return mask}
+function sampleHSVRegion(hsv,x0,y0,x1,y1){const d=hsv.data,cols=hsv.cols,hs=[],ss=[],vs=[];for(let y=y0;y<y1;y+=2)for(let x=x0;x<x1;x+=2){const i=(y*cols+x)*3;hs.push(d[i]);ss.push(d[i+1]);vs.push(d[i+2])}const med=a=>a.sort((p,q)=>p-q)[a.length>>1];return [med(hs),med(ss),med(vs)]}
+// ---------- table detection ----------
+function detectTableQuad(){const fr=grabFrame(320);if(!fr)return null;const mats=[];
+ try{const src=cv.imread(fr.c);mats.push(src);const rgb=new cv.Mat(),hsv=new cv.Mat();mats.push(rgb,hsv);cv.cvtColor(src,rgb,cv.COLOR_RGBA2RGB);cv.cvtColor(rgb,hsv,cv.COLOR_RGB2HSV);
+  if(!feltHSV){const w=hsv.cols,h=hsv.rows;feltHSV=sampleHSVRegion(hsv,Math.round(w*.4),Math.round(h*.4),Math.round(w*.6),Math.round(h*.6))}
+  const mask=feltMask(hsv,mats);const k=cv.getStructuringElement(cv.MORPH_RECT,new cv.Size(5,5));mats.push(k);cv.morphologyEx(mask,mask,cv.MORPH_CLOSE,k);cv.morphologyEx(mask,mask,cv.MORPH_OPEN,k);
+  const contours=new cv.MatVector(),hier=new cv.Mat();mats.push(contours,hier);cv.findContours(mask,contours,hier,cv.RETR_EXTERNAL,cv.CHAIN_APPROX_NONE);
+  let bi=-1,ba=0;for(let i=0;i<contours.size();i++){const c=contours.get(i);const a=cv.contourArea(c);if(a>ba){ba=a;bi=i}c.delete()}
+  if(bi<0||ba<0.06*fr.w*fr.h)return null;
+  const cnt=contours.get(bi);mats.push(cnt);const hull=new cv.Mat();mats.push(hull);cv.convexHull(cnt,hull,false,true);
+  const peri=cv.arcLength(hull,true);let pts=null;const eps=[0.02,0.03,0.045,0.06,0.08];
+  for(let j=0;j<eps.length&&!pts;j++){const ap=new cv.Mat();cv.approxPolyDP(hull,ap,eps[j]*peri,true);if(ap.rows===4){pts=[];for(let i=0;i<4;i++)pts.push({x:ap.data32S[i*2],y:ap.data32S[i*2+1]})}ap.delete()}
+  if(!pts){const hd=hull.data32S;let a=null,b=null,c=null,d=null;for(let i=0;i<hull.rows;i++){const p={x:hd[i*2],y:hd[i*2+1]};if(!a||p.x+p.y<a.x+a.y)a=p;if(!c||p.x+p.y>c.x+c.y)c=p;if(!b||p.x-p.y>b.x-b.y)b=p;if(!d||p.x-p.y<d.x-d.y)d=p}pts=[a,b,c,d]}
+  pts=refineQuad(pts,cnt.data32S,Math.max(fr.w,fr.h));
+  const q=orderQuad(pts.map(p=>({x:(p.x+0.5)/fr.w,y:(p.y+0.5)/fr.h})));
+  return {corners:q,area:ba/(fr.w*fr.h)};
+ }finally{mats.forEach(m=>{try{m.delete()}catch(e){}})}}
+// Refine a rough quad: fit a line to the straight middle part of each side (ignores pocket cut-outs), then intersect neighbours
+function fitLine(cd,n,A,ux,uy,len,nx,ny,tol){let sx=0,sy=0,sxx=0,syy=0,sxy=0,c=0;
+ for(let k=0;k<n;k++){const px=cd[k*2],py=cd[k*2+1],t=((px-A.x)*ux+(py-A.y)*uy)/len;if(t<0.1||t>0.9)continue;const d=Math.abs((px-A.x)*nx+(py-A.y)*ny);if(d>tol)continue;sx+=px;sy+=py;sxx+=px*px;syy+=py*py;sxy+=px*py;c++}
+ if(c<8)return null;const mx=sx/c,my=sy/c,cxx=sxx/c-mx*mx,cyy=syy/c-my*my,cxy=sxy/c-mx*my;const ang=0.5*Math.atan2(2*cxy,cxx-cyy);return {x:mx,y:my,dx:Math.cos(ang),dy:Math.sin(ang),c:c}}
+function refineQuad(q,cd,size){const n=cd.length/2,lines=[];
+ for(let i=0;i<4;i++){const A=q[i],B=q[(i+1)%4],dx=B.x-A.x,dy=B.y-A.y,len=Math.hypot(dx,dy);if(len<10)return q;const ux=dx/len,uy=dy/len;
+  // pass 1: loose band around the rough side; passes 2-3: tight band around the fitted line (drops pocket cut-outs)
+  let ln=fitLine(cd,n,A,ux,uy,len,uy,-ux,size*0.05);if(!ln)return q;
+  for(let it=0;it<2;it++){let ddx=ln.dx,ddy=ln.dy;if(ddx*ux+ddy*uy<0){ddx=-ddx;ddy=-ddy}const pr=(A.x-ln.x)*ddx+(A.y-ln.y)*ddy,A2={x:ln.x+ddx*pr,y:ln.y+ddy*pr};const l2=fitLine(cd,n,A2,ddx,ddy,len,ddy,-ddx,size*(it?0.008:0.02));if(!l2)break;ln=l2}
+  // keep projection window based on the rough side: re-anchor A on the fitted line
+  lines.push(ln)}
+ const out=[];for(let i=0;i<4;i++){const L1=lines[(i+3)%4],L2=lines[i];const den=L1.dx*L2.dy-L1.dy*L2.dx;if(Math.abs(den)<1e-6)return q;const t=((L2.x-L1.x)*L2.dy-(L2.y-L1.y)*L2.dx)/den;const p={x:L1.x+L1.dx*t,y:L1.y+L1.dy*t};
+  if(Math.hypot(p.x-q[i].x,p.y-q[i].y)>size*0.25)return q;out.push(p)}return out}
+function runTableDetection(tracking){
+ if(!cvReady){setStatus('OpenCV.js is still loading. You can tap the 4 corners instead.');return false}
+ if(!stream||video.readyState<2){setStatus('Start the camera first.');return false}
+ const t0=performance.now();let r=null;try{r=detectTableQuad()}catch(e){console.warn('table',e);if(!tracking)setStatus('Table detection error: '+e.message)}
+ trackStats.tableMs=Math.round(performance.now()-t0);trackStats.tableRuns++;
+ if(!r){if(!tracking)setStatus('Could not find the table felt. Tap "Tap felt" and tap bare cloth, or tap the 4 corners.');return false}
+ if(tracking&&calib.corners){const fs=frameSize(),diag=Math.hypot(fs.w,fs.h);let maxMove=0;for(let i=0;i<4;i++)maxMove=Math.max(maxMove,Math.hypot((r.corners[i].x-calib.corners[i].x)*fs.w,(r.corners[i].y-calib.corners[i].y)*fs.h));
+  if(maxMove>0.25*diag){trackStats.rejected=(trackStats.rejected||0)+1;return false}
+  const al=maxMove>0.05*diag?0.7:0.35;const sm=calib.corners.map((c,i)=>({x:c.x+(r.corners[i].x-c.x)*al,y:c.y+(r.corners[i].y-c.y)*al}));
+  setCalibration(sm,calib.rot,'tracking',calib.inset,false);if(Date.now()-(trackStats.lastSave||0)>5000){trackStats.lastSave=Date.now();saveSetup()}return true}
+ snapshot();setCalibration(r.corners,chooseRot(r.corners,1.3),'auto',AUTO_INSET,true);saveSetup();markersChanged();
+ if(!tracking)setStatus('Table found ('+Math.round(r.area*100)+'% of the frame). Check the outline; tap Rotate table if the diagram is turned. Next: Detect balls.');return true}
+tableBtn.addEventListener('click',()=>{setTimeout(()=>runTableDetection(false),10)});
+// ---------- ball detection + classification ----------
+function classifyPixels(px){
+ if(px.length<12)return '?';px.sort((a,b)=>a.v-b.v);const cutV=px[Math.floor(px.length*0.94)].v;const use=cutV>0.85?px.slice(0,Math.floor(px.length*0.94)):px;
+ let white=0,black=0,col=0,vsum=0;const hist=new Array(36).fill(0);
+ use.forEach(p=>{if(p.s<0.28&&p.v>0.6)white++;else if(p.v<0.2)black++;else if(p.s>=0.35&&p.v>=0.2){col++;hist[Math.floor(p.h/10)%36]++;vsum+=p.v}});
+ const n=use.length,fw=white/n,fb=black/n,fc=col/n;
+ if(fw>=0.6&&fc<0.15)return 'cue';if(fb>=0.45&&fc<0.25)return '8';if(fc<0.12)return fw>fb?'cue':'8';
+ let bi=0,bv=-1;for(let i=0;i<36;i++){const v=hist[(i+35)%36]+2*hist[i]+hist[(i+1)%36];if(v>bv){bv=v;bi=i}}const hue=bi*10+5,mv=vsum/Math.max(1,col);
+ let num;if(hue<15||hue>=340)num=mv<0.45?7:3;else if(hue<38)num=mv<0.45?7:5;else if(hue<72)num=1;else if(hue<170)num=6;else if(hue<255)num=2;else num=4;
+ const stripe=fw>=0.2&&fc>=0.15;return String(stripe?num+8:num)}
+function detectBallsNow(){
+ const fr=grabFrame(960);if(!fr)return null;const mats=[];const ppi=7,e=calib.corners?calib.inset:0;const tw=Math.round((table.L+2*e)*ppi),th=Math.round((table.W+2*e)*ppi);
+ try{const src=cv.imread(fr.c);mats.push(src);const img=quadImageCornersInTableOrder();
+  const sp=[],dp=[];img.forEach(p=>{sp.push(p.x*fr.w,p.y*fr.h)});dp.push(0,0,tw,0,tw,th,0,th);
+  const sm=cv.matFromArray(4,1,cv.CV_32FC2,sp),dm=cv.matFromArray(4,1,cv.CV_32FC2,dp);mats.push(sm,dm);const M=cv.getPerspectiveTransform(sm,dm);mats.push(M);
+  const warped=new cv.Mat();mats.push(warped);cv.warpPerspective(src,warped,M,new cv.Size(tw,th),cv.INTER_LINEAR,cv.BORDER_CONSTANT,new cv.Scalar());
+  const rgb=new cv.Mat(),hsv=new cv.Mat(),gray=new cv.Mat();mats.push(rgb,hsv,gray);cv.cvtColor(warped,rgb,cv.COLOR_RGBA2RGB);cv.cvtColor(rgb,hsv,cv.COLOR_RGB2HSV);cv.cvtColor(rgb,gray,cv.COLOR_RGB2GRAY);
+  if(!feltHSV)feltHSV=sampleHSVRegion(hsv,Math.round(tw*.3),Math.round(th*.3),Math.round(tw*.7),Math.round(th*.7));
+  const felt=feltMask(hsv,mats),non=new cv.Mat();mats.push(non);cv.bitwise_not(felt,non);
+  const k=cv.getStructuringElement(cv.MORPH_ELLIPSE,new cv.Size(3,3));mats.push(k);cv.morphologyEx(non,non,cv.MORPH_OPEN,k);
+  const contours=new cv.MatVector(),hier=new cv.Mat();mats.push(contours,hier);cv.findContours(non,contours,hier,cv.RETR_EXTERNAL,cv.CHAIN_APPROX_SIMPLE);
+  const rpx=BALL_R*ppi,expA=Math.PI*rpx*rpx,cents=[],P=pocketsT();
+  for(let i=0;i<contours.size();i++){const c=contours.get(i);try{const a=cv.contourArea(c);if(a<0.3*expA||a>8*expA)continue;const br=cv.boundingRect(c);
+    if(Math.max(br.width,br.height)>7*rpx)continue;
+    if(a>2.6*expA){const roi=gray.roi(br),circ=new cv.Mat();cv.HoughCircles(roi,circ,cv.HOUGH_GRADIENT,1,1.5*rpx,80,12,Math.round(0.7*rpx),Math.round(1.4*rpx));let got=0;
+     for(let j=0;j<circ.cols;j++){cents.push({x:br.x+circ.data32F[j*3],y:br.y+circ.data32F[j*3+1]});got++}roi.delete();circ.delete();if(got>=2)continue;if(a>5*expA)continue}
+    const m=cv.moments(c,false);if(!m.m00)continue;cents.push({x:m.m10/m.m00,y:m.m01/m.m00})}finally{c.delete()}}
+  const data=rgb.data,ndata=non.data,dets=[];
+  cents.forEach(cn=>{const t={x:cn.x/ppi-e,y:cn.y/ppi-e};if(t.x<-0.3||t.y<-0.3||t.x>table.L+0.3||t.y>table.W+0.3)return;
+   for(let i=0;i<P.length;i++)if(Math.hypot(P[i].x-t.x,P[i].y-t.y)<2.3)return;
+   const px=[],R=Math.max(2,Math.round(rpx*0.85));for(let y=Math.round(cn.y)-R;y<=Math.round(cn.y)+R;y++){if(y<0||y>=th)continue;for(let x=Math.round(cn.x)-R;x<=Math.round(cn.x)+R;x++){if(x<0||x>=tw)continue;if((x-cn.x)*(x-cn.x)+(y-cn.y)*(y-cn.y)>R*R)continue;const o=y*tw+x;if(!ndata[o])continue;const q=o*3;px.push(rgb2hsv(data[q],data[q+1],data[q+2]))}}
+   dets.push({x:clamp(t.x,BALL_R,table.L-BALL_R),y:clamp(t.y,BALL_R,table.W-BALL_R),type:classifyPixels(px)})});
+  return dets;
+ }finally{mats.forEach(m=>{try{m.delete()}catch(e){}})}}
+// match detections to existing balls (nearest position + same class), keep roles attached
+function mergeDetections(dets){
+ const ex=balls.filter(b=>b.src==='det'),man=balls.filter(b=>b.src==='manual');const pairs=[];
+ dets=dets.filter(d=>!man.some(m=>Math.hypot(m.x-d.x,m.y-d.y)<2*BALL_R));
+ ex.forEach((b,i)=>dets.forEach((d,j)=>{const dist=Math.hypot(b.x-d.x,b.y-d.y);if(dist<(b.type===d.type?9:5))pairs.push({i:i,j:j,c:dist+(b.type!==d.type&&!b.userType?1.5:0)})}));
+ pairs.sort((a,b)=>a.c-b.c);const ue={},ud={};let matched=0,added=0,removed=0;
+ pairs.forEach(p=>{if(ue[p.i]||ud[p.j])return;ue[p.i]=ud[p.j]=true;const b=ex[p.i],d=dets[p.j];b.x+=(d.x-b.x)*0.75;b.y+=(d.y-b.y)*0.75;b.miss=0;
+  if(!b.userType){b.votes[d.type]=(b.votes[d.type]||0)+1;let bt=b.type,bc=-1;for(const k in b.votes)if(b.votes[k]>bc){bc=b.votes[k];bt=k}b.type=bt}matched++});
+ ex.forEach((b,i)=>{if(ue[i])return;b.miss++;const role=roleOf(b);if(b.miss>=(role?8:3)){balls=balls.filter(x=>x!==b);if(role)roles[role]=null;removed++}});
+ dets.forEach((d,j)=>{if(ud[j])return;const b=newBall(d,d.type,'det');b.votes[d.type]=1;added++});
+ if(!ballById(roles.cue)){const c=balls.filter(b=>b.type==='cue');if(c.length)roles.cue=c[0].id}
+ return {matched:matched,added:added,removed:removed};
+}
+function runBallDetection(tracking){
+ if(!stream||video.readyState<2){if(!tracking)setStatus('Start the camera first.');return}
+ if(!cvReady){if(!tracking)setStatus('OpenCV.js is still loading or unavailable. Manual placement works without it.');return}
+ if(!calib.corners&&!tracking)runTableDetection(false);
+ const t0=performance.now();let dets=null;try{dets=detectBallsNow()}catch(e){console.warn('balls',e);if(!tracking)setStatus('Detection error: '+e.message+' — manual placement remains available.');return}
+ trackStats.lastMs=Math.round(performance.now()-t0);trackStats.runs++;if(!dets)return;
+ if(!tracking)snapshot();const st=mergeDetections(dets);markersChanged();
+ if(!tracking){const cnt={};balls.forEach(b=>{cnt[b.type]=1});setStatus('Found '+dets.length+' ball'+(dets.length===1?'':'s')+(calib.corners?'':' (table not calibrated)')+'. Check the labels; use Fix ball type for wrong ones, and tap balls in Cue / Object / Next mode to pick your shot.')}
+ else setStatus('Tracking: '+balls.length+' balls · '+trackStats.lastMs+' ms per scan'+(autoTable?' · table '+trackStats.tableMs+' ms':''));
+}
+detectBtn.addEventListener('click',()=>{setStatus('Detecting balls…');setTimeout(()=>runBallDetection(false),20)});
+// ---------- live tracking scheduler (throttled, never overlapping) ----------
+function setToggle(which,on){if(which==='track'){autoTrack=on;trackBtn.classList.toggle('active',on);trackBtn.textContent='Auto track: '+(on?'on':'off')}else{autoTable=on;autoTableBtn.classList.toggle('active',on);autoTableBtn.textContent='Auto table: '+(on?'on':'off')}}
+trackBtn.addEventListener('click',()=>{setToggle('track',!autoTrack);if(autoTrack&&!calib.corners&&cvReady)runTableDetection(false);setStatus(autoTrack?'Auto track on: re-scanning balls about once a second.':'Auto track off.')});
+autoTableBtn.addEventListener('click',()=>{setToggle('table',!autoTable);if(autoTable&&!calib.corners&&cvReady)runTableDetection(false);setStatus(autoTable?'Auto table on: following the table as the phone moves.':'Auto table off. The last table outline is kept.')});
+function tick(){
+ if(busy||!stream||!cvReady||video.readyState<2||document.hidden)return;const now=Date.now();
+ if(autoTable&&now-lastTableRun>=250){busy=true;lastTableRun=now;try{if(runTableDetection(true)){updateMetrics();requestDraw()}}finally{busy=false}return}
+ if(autoTrack&&now-lastBallRun>=1000){busy=true;lastBallRun=now;try{runBallDetection(true)}finally{busy=false}}
+}
+setInterval(tick,120);
+// ---------- test hook (used by automated tests; harmless) ----------
+window.poolTest={
+ get:function(){return {calib:calib,table:table,balls:balls.map(b=>({id:b.id,type:b.type,src:b.src,x:b.x,y:b.y,frame:tableToFrame(b),role:roleOf(b)})),roles:roles,suggestion:suggestion,summary:$('positionSummary').textContent,manual:$('manualSummary').textContent,power:power.value,spin:spin.value,vertical:vertical.value,stats:trackStats,cvReady:cvReady,status:statusEl.textContent}},
+ setRoles:function(r){if(r.cue!==undefined)roles.cue=r.cue;if(r.object!==undefined)roles.object=r.object;if(r.next!==undefined)roles.next=r.next;markersChanged()},
+ place:function(arr){snapshot();arr.forEach(a=>{const b=newBall(a,a.type||'?','manual');if(a.role)assignRole(a.role,b)});markersChanged()},
+ tableToFrame:function(t){return tableToFrame(t)}
+};
+// ---------- init ----------
+if(loadSaved())savedBtn.hidden=false;
+loadOpenCV(0);computeH();renderCueGraphic();updateControls();sizeCanvas();updateTableHint();requestAnimationFrame(frameLoop);
 })();
 </script>
 </body>
