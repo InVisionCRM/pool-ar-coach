@@ -28,6 +28,7 @@ label{display:block;font-size:13px;margin:9px 0 4px}input[type=range]{width:100%
 #cueGraphic{position:relative;display:block;height:auto;width:100%;max-width:240px;margin:0 auto;background:#111915;border:1px solid var(--line);border-radius:12px}
 .balllist{display:flex;gap:6px;flex-wrap:wrap}.ballbtn{min-width:0;padding:7px 9px;font-size:12px}
 .notice{background:#25271f;border:1px solid #5c5036;border-radius:10px;padding:10px;color:#f4d8a8;font-size:12px}
+.possum{background:#111915;border:1px solid var(--line);border-radius:10px;padding:10px;font-size:13px;margin:8px 0 0}.possum b{color:var(--green)}.legend{display:flex;gap:10px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-top:6px}.legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:4px;vertical-align:-1px}
 footer{max-width:1400px;margin:0 auto;padding:0 14px 20px;color:var(--muted);font-size:12px}
 @media(max-width:850px){main{grid-template-columns:1fr;padding:9px;gap:9px}header{padding:14px}#stage{aspect-ratio:3/4;min-height:300px}.side{padding:12px}}
 </style>
@@ -42,9 +43,10 @@ footer{max-width:1400px;margin:0 auto;padding:0 14px 20px;color:var(--muted);fon
     <button id="detectBtn" disabled>Detect balls</button>
     <button id="clearBtn">Clear balls</button>
     <select id="placeMode" aria-label="Placement mode">
-      <option value="cue">Place cue ball</option><option value="object">Place object ball</option><option value="pocket">Place target pocket</option>
+      <option value="cue">Place cue ball</option><option value="object">Place object ball</option><option value="pocket">Place target pocket</option><option value="next">Place next ball</option><option value="nextpocket">Place next pocket</option><option value="corner">Set table corners (4 taps)</option>
     </select>
     <button id="undoBtn">Undo last</button>
+    <button id="suggestBtn">Suggest position</button>
   </div>
   <div id="stage">
     <div id="placeholder"><h2>Start your camera to begin</h2><p>Set the phone so the full table is visible. Tap the image to place the cue ball, an object ball, and a target pocket. Detection is experimental and can be corrected manually.</p><p>Camera access generally requires HTTPS or localhost.</p></div>
@@ -60,6 +62,14 @@ footer{max-width:1400px;margin:0 auto;padding:0 14px 20px;color:var(--muted);fon
       <div class="metric"><b id="angleMetric">—°</b><span>Estimated cut angle</span></div>
       <div class="metric"><b id="distanceMetric">—</b><span>Path distance (relative)</span></div>
     </div>
+    <div class="row" style="margin-top:8px">
+      <div class="metric"><b id="nextCutMetric">—°</b><span>Next-shot cut (predicted)</span></div>
+      <div class="metric"><b id="positionMetric">—</b><span>Position quality</span></div>
+    </div>
+    <div class="possum" id="positionSummary">Position play: place the cue ball, object ball, pocket and the <b>Next ball</b>, then tap <b>Suggest position</b>.</div>
+    <p class="hint" id="manualSummary"></p>
+    <p class="hint" id="tableHint"></p>
+    <div class="legend"><span><i style="background:#ff7ad9"></i>Predicted cue-ball path</span><span><i style="background:rgba(131,242,143,.55)"></i>Suggested landing zone</span><span><i style="background:#5ab0ff"></i>Next ball</span></div>
     <p class="hint">Prototype geometry uses your image coordinates. For accurate real-world angles, calibrate the table corners and compensate for perspective.</p>
   </section>
   <section class="group">
@@ -82,12 +92,16 @@ footer{max-width:1400px;margin:0 auto;padding:0 14px 20px;color:var(--muted);fon
       <button class="ballbtn active" data-mode="cue">Cue ball</button>
       <button class="ballbtn" data-mode="object">Object ball</button>
       <button class="ballbtn" data-mode="pocket">Pocket</button>
+      <button class="ballbtn" data-mode="next">Next ball</button>
+      <button class="ballbtn" data-mode="nextpocket">Next pocket</button>
+      <button class="ballbtn" data-mode="corner">Table corners</button>
     </div>
-    <p class="hint">Tap a tool, then tap the camera view to add or move that marker. You can add multiple object balls and pockets. The selected object ball is the most recently placed one.</p>
+    <p class="hint">Tap a tool, then tap the camera view to add or move that marker. You can add multiple object balls and pockets. The selected object ball is the most recently placed one. For position play, also place the <b>Next ball</b> (N) and optionally the <b>Next pocket</b> (NP). <b>Table corners</b> takes 4 taps on the corners of the playing surface so cue-ball rail bounces line up.</p>
   </section>
   <section class="group">
     <h2>Prototype notes</h2>
     <div class="notice">Automatic detection uses OpenCV.js circle detection when the library loads. Pool balls can be missed or false-detected due to reflections, shadows, and camera angle. Manually correct positions before trusting any line.</div>
+    <div class="notice" style="margin-top:8px">Position play is an approximation. It uses textbook rules (stun follows the tangent line, follow and draw bend the path, side spin changes the rail rebound) and a rough guess of how far the ball rolls at each power level. Cloth speed, rail bounce, your stroke and the camera angle all change the result, so use the suggestion as a starting point and adjust power and spin for your table.</div>
   </section>
 </aside>
 </main>
@@ -100,6 +114,7 @@ const startBtn=document.getElementById('startBtn'), stopBtn=document.getElementB
 const modeSelect=document.getElementById('placeMode');
 const power=document.getElementById('power'), spin=document.getElementById('spin'), vertical=document.getElementById('vertical');
 let detectCanvas=null;let stream=null, mode='cue', cue=null, objects=[], pockets=[], history=[], cvReady=false, raf=0, lastDetection=0;
+let nextBall=null, nextPocket=null, corners=[], suggestion=null;
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 function setStatus(s){statusEl.textContent=s}
 function sizeCanvas(){
@@ -110,12 +125,14 @@ function sizeCanvas(){
 function dims(){return {w:stage.clientWidth,h:stage.clientHeight}}
 // Displayed video rect inside the stage (object-fit:contain letterboxing), in stage CSS px
 function videoRect(){const {w,h}=dims();const vw=video.videoWidth,vh=video.videoHeight;if(!vw||!vh)return {x:0,y:0,w:w,h:h};const s=Math.min(w/vw,h/vh);const dw=vw*s,dh=vh*s;return {x:(w-dw)/2,y:(h-dh)/2,w:dw,h:dh}}
-function snapshot(){history.push(JSON.stringify({cue,objects,pockets}));if(history.length>30)history.shift()}
-function restoreLast(){if(!history.length)return;const x=JSON.parse(history.pop());cue=x.cue;objects=x.objects;pockets=x.pockets;draw();updateMetrics()}
+function snapshot(){history.push(JSON.stringify({cue:cue,objects:objects,pockets:pockets,nextBall:nextBall,nextPocket:nextPocket,corners:corners}));if(history.length>30)history.shift()}
+function restoreLast(){if(!history.length)return;const x=JSON.parse(history.pop());cue=x.cue;objects=x.objects;pockets=x.pockets;nextBall=x.nextBall||null;nextPocket=x.nextPocket||null;corners=x.corners||[];markersChanged()}
 function pointFromEvent(e){const r=canvas.getBoundingClientRect();return {x:e.clientX-r.left,y:e.clientY-r.top}}
 function norm(p){const {w,h}=dims();return {x:p.x/w,y:p.y/h}}
 function denorm(p){const {w,h}=dims();return {x:p.x*w,y:p.y*h}}
-function addAt(p,m=mode){snapshot();const q=norm(p);if(m==='cue')cue=q;else if(m==='object')objects.push(q);else pockets.push(q);draw();updateMetrics();setStatus('Marker placed. Use the placement tools to correct positions.')}
+function addAt(p,m=mode){snapshot();const q=norm(p);let msg='Marker placed. Use the placement tools to correct positions.';
+ if(m==='cue')cue=q;else if(m==='object')objects.push(q);else if(m==='next'){nextBall=q;msg='Next ball placed.'}else if(m==='nextpocket'){nextPocket=q;msg='Next pocket placed.'}else if(m==='corner'){if(corners.length>=4)corners=[];corners.push(q);msg='Table corner '+corners.length+' of 4 set.'+(corners.length<4?' Tap the next corner.':' Table edges set.')}else pockets.push(q);
+ markersChanged();setStatus(msg)}
 let lastPointerTap=0;
 if(window.PointerEvent){canvas.addEventListener('pointerup',e=>{if(!stream)return;if(e.pointerType==='mouse'&&e.button!==0)return;e.preventDefault();lastPointerTap=Date.now();addAt(pointFromEvent(e),mode)})}
 canvas.addEventListener('click',e=>{if(!stream)return;if(Date.now()-lastPointerTap<700)return;addAt(pointFromEvent(e),mode)});
@@ -137,7 +154,12 @@ function draw(){
    arrow(cue,target,'#ffbd69');
    if(pocket&&cue){const a=denorm(cue),b=denorm(target);ctx.beginPath();ctx.arc(b.x,b.y,9,0,Math.PI*2);ctx.strokeStyle='#ffbd69';ctx.lineWidth=2;ctx.stroke()}
  }
+ drawPosition();
  pockets.forEach((p,i)=>circle(p,7,'#0a0a0a','#83f28f','P'+(i+1)));
+ if(nextPocket)circle(nextPocket,9,'#0a0a0a','#5ab0ff','');
+ if(nextPocket){const q=denorm(nextPocket);ctx.fillStyle='#5ab0ff';ctx.font='bold 10px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('NP',q.x,q.y)}
+ corners.forEach((p,i)=>{const q=denorm(p);ctx.strokeStyle='#a5f7ff';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(q.x-7,q.y);ctx.lineTo(q.x+7,q.y);ctx.moveTo(q.x,q.y-7);ctx.lineTo(q.x,q.y+7);ctx.stroke();ctx.fillStyle='#a5f7ff';ctx.font='10px system-ui';ctx.textAlign='left';ctx.textBaseline='bottom';ctx.fillText('T'+(i+1),q.x+5,q.y-3)});
+ if(nextBall)circle(nextBall,10,'#5ab0ff','#d8ecff','N');
  objects.forEach((p,i)=>circle(p,10,'#e8b53d','#fff0b5',String(i+1)));
  if(cue)circle(cue,10,'#f7f7f0','#a5f7ff','C');
 }
@@ -167,7 +189,7 @@ function updateControls(){
  const s=Number(spin.value),v=Number(vertical.value);
  document.getElementById('spinLabel').textContent=s<-8?'Left '+Math.abs(s)+'%':s>8?'Right '+s+'%':'Center';
  document.getElementById('verticalLabel').textContent=v<-8?'Draw '+Math.abs(v)+'%':v>8?'Follow '+v+'%':'Center';
- renderCueGraphic();
+ renderCueGraphic();draw();updateManualText();
 }
 [power,spin,vertical].forEach(x=>x.addEventListener('input',updateControls));
 document.getElementById('cueGraphic').addEventListener('click',e=>{
@@ -179,7 +201,8 @@ document.querySelectorAll('[data-mode]').forEach(b=>b.addEventListener('click',(
 function setMode(m){mode=m;modeSelect.value=m;document.querySelectorAll('[data-mode]').forEach(b=>b.classList.toggle('active',b.dataset.mode===m))}
 modeSelect.addEventListener('change',()=>setMode(modeSelect.value));
 document.getElementById('undoBtn').addEventListener('click',restoreLast);
-document.getElementById('clearBtn').addEventListener('click',()=>{snapshot();cue=null;objects=[];pockets=[];draw();updateMetrics();setStatus('Markers cleared.')});
+document.getElementById('clearBtn').addEventListener('click',()=>{snapshot();cue=null;objects=[];pockets=[];nextBall=null;nextPocket=null;markersChanged();setStatus('Markers cleared (table corners kept; tap Table corners 4 times to reset them).')});
+document.getElementById('suggestBtn').addEventListener('click',()=>runSuggest(false));
 startBtn.addEventListener('click',async()=>{
  try{
   stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:960}},audio:false});
@@ -228,11 +251,163 @@ detectBtn.addEventListener('click',()=>{
    if(!cue)cue=p;else objects.push(p);found++;
    if(found>=12)break;
   }
-  src.delete();gray.delete();circles.delete();draw();updateMetrics();
+  src.delete();gray.delete();circles.delete();markersChanged();
   setStatus(found?'Experimental detector found '+found+' circular candidate'+(found===1?'':'s')+'. Review and manually correct them.':'No circles found. Try brighter lighting or manual placement.');
  }catch(e){setStatus('Detection error: '+e.message+' — manual placement remains available.')}
 });
-loadOpenCV();renderCueGraphic();updateControls();sizeCanvas();
+// ---------- Position play (approximate, image-space) ----------
+const DRAW_K=1.6, RAIL_LOSS=0.65, MAX_RAILS=3, ROLL_K=9;
+function vsub(a,b){return {x:a.x-b.x,y:a.y-b.y}}function vadd(a,b){return {x:a.x+b.x,y:a.y+b.y}}function vmul(a,k){return {x:a.x*k,y:a.y*k}}
+function vdot(a,b){return a.x*b.x+a.y*b.y}function vlen(a){return Math.hypot(a.x,a.y)}function vunit(a){const l=vlen(a)||1;return {x:a.x/l,y:a.y/l}}
+function segDist(p,a,b){const ab=vsub(b,a),L2=vdot(ab,ab);let t=L2?vdot(vsub(p,a),ab)/L2:0;t=clamp(t,0,1);return vlen(vsub(p,vadd(a,vmul(ab,t))))}
+function lastOf(arr){return arr.length?arr[arr.length-1]:null}
+// Table rectangle in stage px: 4 corner taps > bounding box of 4+ pockets > displayed video inset
+function tableRect(){
+ let pts=null,src='video';
+ if(corners.length===4){pts=corners;src='corners'}
+ else{const all=pockets.slice();if(nextPocket)all.push(nextPocket);if(all.length>=4){pts=all;src='pockets'}}
+ if(pts){let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;pts.forEach(p=>{const q=denorm(p);x0=Math.min(x0,q.x);y0=Math.min(y0,q.y);x1=Math.max(x1,q.x);y1=Math.max(y1,q.y)});
+  if(x1-x0>40&&y1-y0>40)return {x0:x0,y0:y0,x1:x1,y1:y1,src:src}}
+ const vr=videoRect(),ix=vr.w*0.04,iy=vr.h*0.04;return {x0:vr.x+ix,y0:vr.y+iy,x1:vr.x+vr.w-ix,y1:vr.y+vr.h-iy,src:'video'};
+}
+function updateTableHint(){const el=document.getElementById('tableHint');if(!el)return;const t=tableRect();
+ el.textContent=t.src==='corners'?'Rails: using your 4 table-corner taps.':t.src==='pockets'?'Rails: using the outline of your placed pockets.':'Rails: guessing from the camera frame. Tap "Table corners" and tap the 4 corners (or place 4+ pockets) to make bounce predictions more accurate.'}
+// Gather the current shot in stage px
+function shotGeom(){
+ const obj=lastOf(objects),pk=lastOf(pockets);if(!cue||!obj||!pk)return null;
+ const {w,h}=dims();if(!w||!h)return null;
+ const T=tableRect(),TL=Math.max(T.x1-T.x0,T.y1-T.y0),r=TL/88;
+ const C=denorm(cue),O=denorm(obj),Pk=denorm(pk);
+ const u=vunit(vsub(Pk,O)),G=vsub(O,vmul(u,2*r)),dCG=vlen(vsub(G,C));if(dCG<r)return null;
+ const a=vunit(vsub(G,C)),cosT=clamp(vdot(a,u),-1,1),theta=Math.acos(cosT);
+ const tr=vsub(a,vmul(u,vdot(a,u))),tl=vlen(tr),t=tl>1e-6?vmul(tr,1/tl):{x:0,y:0};
+ const others=[];objects.forEach(o=>{if(o!==obj)others.push(denorm(o))});
+ const pk2=[];pockets.forEach(p=>pk2.push(denorm(p)));if(nextPocket)pk2.push(denorm(nextPocket));
+ let blocked=false;others.concat(nextBall?[denorm(nextBall)]:[]).forEach(b=>{if(segDist(b,C,G)<2*r)blocked=true});
+ return {T:T,TL:TL,r:r,C:C,O:O,Pk:Pk,u:u,G:G,dCG:dCG,a:a,theta:theta,t:t,others:others,pocketsPx:pk2,N:nextBall?denorm(nextBall):null,blocked:blocked,objDist:vlen(vsub(Pk,O))};
+}
+// Simulate the cue ball for power %, vertical (-100 draw..100 follow), side (-100 left..100 right)
+function simulate(g,pw,vert,side){
+ const res={valid:true,path:[g.C,g.G],land:g.G,rails:0,running:null,scratch:false,collide:false,frozen:false,objOk:true};
+ if(g.theta>80*Math.PI/180){res.valid=false;res.reason='cut too thin';return res}
+ const D=ROLL_K*g.TL*Math.pow(pw/100,1.6),rem=D-g.dCG;
+ if(rem<=0){res.valid=false;res.reason='too soft to reach';return res}
+ res.objOk=rem*Math.pow(Math.cos(g.theta),2)*0.9>=g.objDist;
+ let s=vert/100;if(s<0)s*=Math.exp(-g.dCG/(1.5*g.TL));
+ // after contact: tangent-line velocity (stun) blended with spin-driven motion along the original aim line (5/7 + 2/7 rule)
+ const vt=vmul(g.t,Math.sin(g.theta)),vf=vadd(vmul(vt,5/7),vmul(g.a,2/7*DRAW_K*s)),sp=vlen(vf);
+ let budget=rem*sp*sp;
+ if(sp<1e-4||budget<g.r*0.5){finishSim(g,res);return res}
+ let pos={x:g.G.x,y:g.G.y},dir=vmul(vf,1/sp);
+ const xmin=g.T.x0+g.r,xmax=g.T.x1-g.r,ymin=g.T.y0+g.r,ymax=g.T.y1-g.r;
+ pos.x=clamp(pos.x,xmin,xmax);pos.y=clamp(pos.y,ymin,ymax);
+ const e=side/100;
+ for(let k=0;k<MAX_RAILS+2;k++){
+  const tx=dir.x>1e-9?(xmax-pos.x)/dir.x:dir.x<-1e-9?(xmin-pos.x)/dir.x:1e9;
+  const ty=dir.y>1e-9?(ymax-pos.y)/dir.y:dir.y<-1e-9?(ymin-pos.y)/dir.y:1e9;
+  const tHit=Math.max(0,Math.min(tx,ty));
+  if(budget<=tHit){pos=vadd(pos,vmul(dir,budget));res.path.push(pos);break}
+  pos=vadd(pos,vmul(dir,tHit));res.path.push(pos);res.rails++;
+  if(res.rails>MAX_RAILS){res.frozen=true;break}
+  const right={x:-dir.y,y:dir.x},kk=res.rails===1?1:res.rails===2?0.4:0.15;
+  if(tx<=ty){// side rail (vertical line): flip x, side spin bends y
+   const vn=Math.abs(dir.x);dir={x:-dir.x,y:dir.y};const add=e*kk*0.6*vn*right.y;
+   if(res.rails===1&&Math.abs(e)>0.08&&Math.abs(dir.y)>0.05)res.running=(add*dir.y>0);dir.y+=add;dir.x=(dir.x>0?1:-1)*Math.max(Math.abs(dir.x),0.15);
+  }else{
+   const vn=Math.abs(dir.y);dir={x:dir.x,y:-dir.y};const add=e*kk*0.6*vn*right.x;
+   if(res.rails===1&&Math.abs(e)>0.08&&Math.abs(dir.x)>0.05)res.running=(add*dir.x>0);dir.x+=add;dir.y=(dir.y>0?1:-1)*Math.max(Math.abs(dir.y),0.15);
+  }
+  dir=vunit(dir);budget=(budget-tHit)*RAIL_LOSS;
+ }
+ res.land=res.path[res.path.length-1];
+ finishSim(g,res);return res;
+}
+function finishSim(g,res){
+ const L=res.land,r=g.r,xmin=g.T.x0+r,xmax=g.T.x1-r,ymin=g.T.y0+r,ymax=g.T.y1-r;
+ if(Math.min(L.x-xmin,xmax-L.x,L.y-ymin,ymax-L.y)<1.3*r)res.frozen=true;
+ const balls=g.others.concat(g.N?[g.N]:[]);
+ for(let i=1;i<res.path.length-1;i++){const A=res.path[i],B=res.path[i+1];
+  g.pocketsPx.forEach(p=>{if(segDist(p,A,B)<1.8*r)res.scratch=true});
+  balls.forEach(b=>{if(segDist(b,A,B)<2*r)res.collide=true});
+ }
+ g.pocketsPx.forEach(p=>{if(vlen(vsub(p,L))<2.2*r)res.scratch=true});
+}
+// How good is the next shot (next ball -> next pocket) from a landing spot
+function leaveScore(g,L){
+ if(!g.N)return null;const cands=nextPocket?[{p:denorm(nextPocket),label:'the next pocket (NP)'}]:pockets.map((p,i)=>({p:denorm(p),label:'pocket P'+(i+1)}));
+ let best=null;
+ cands.forEach(c=>{
+  const uN=vunit(vsub(c.p,g.N)),G2=vsub(g.N,vmul(uN,2*g.r)),d2=vlen(vsub(G2,L));
+  let sc=0,phi=90;
+  if(d2>1.5*g.r){const a2=vunit(vsub(G2,L));phi=Math.acos(clamp(vdot(a2,uN),-1,1))*180/Math.PI;
+   if(phi<78){const ang=phi<=15?0.8+0.2*phi/15:phi<=35?1:Math.max(0,1-(phi-35)/43);
+    const dn=d2/g.TL,ds=dn<0.08?0.3+0.7*dn/0.08:dn<=0.4?1:Math.max(0.2,1-(dn-0.4)*1.2);
+    sc=ang*(0.5+0.5*ds);
+    let blk=false;g.others.forEach(b=>{if(segDist(b,L,G2)<2*g.r||segDist(b,g.N,c.p)<2*g.r)blk=true});if(blk)sc*=0.3;}
+  }else sc=0.1;
+  if(!best||sc>best.score)best={score:sc,cut:phi,pocket:c.label,ghost:G2,dist:d2};
+ });
+ return best;
+}
+function evalCandidate(g,pw,v,s){
+ const res=simulate(g,pw,v,s);if(!res.valid||!res.objOk)return {res:res,total:-9};
+ const ls=leaveScore(g,res.land);let total=ls?ls.score:0;
+ if(res.scratch)total-=1.2;if(res.collide)total-=0.5;if(res.frozen)total-=0.25;
+ total-=0.12*pw/100+0.06*Math.abs(v)/100+0.08*Math.abs(s)/100;
+ return {res:res,leave:ls,total:total,power:pw,vertical:v,spin:s};
+}
+function vertWords(v){if(v<=-60)return 'well below center (strong draw)';if(v<=-25)return 'below center (draw)';if(v<-8)return 'slightly below center (a touch of draw)';if(v<=8)return 'dead center (stun)';if(v<25)return 'slightly above center (a touch of follow)';if(v<60)return 'above center (follow)';return 'high on the cue ball (strong follow)'}
+function sideWords(s,running){if(Math.abs(s)<=8)return 'no side spin';const sd=s>0?'right':'left',m=Math.abs(s);return (m<=25?'a little ':m<=45?'':'a lot of ')+sd+' English'+(running===true?' (running off the first rail)':running===false?' (reverse off the first rail)':'')}
+function readyForPosition(){return !!(cue&&objects.length&&pockets.length&&nextBall)}
+function runSuggest(auto){
+ const el=document.getElementById('positionSummary');
+ if(!readyForPosition()){suggestion=null;el.innerHTML='Position play needs the cue ball, an object ball, a target pocket and the <b>Next ball</b>. Place the missing markers, then tap <b>Suggest position</b>.';if(!auto)setStatus('Place cue ball, object ball, pocket and next ball first.');updatePosMetrics();draw();return}
+ const g=shotGeom();if(!g){suggestion=null;el.textContent='The cue ball is too close to the object ball to plan this shot.';draw();return}
+ let best=null;
+ for(let pw=15;pw<=100;pw+=5)for(let v=-100;v<=100;v+=10)for(let s=-60;s<=60;s+=20){const c=evalCandidate(g,pw,v,s);if(!best||c.total>best.total+1e-9)best=c}
+ if(!best||best.total<0.05){suggestion=null;
+  el.innerHTML=(g.theta>80*Math.PI/180?'This cut is too thin to plan position for. ':'')+'No reliable position found from this layout. Consider a softer shot that just pockets the ball, or play safe.'+(g.blocked?' Note: another ball looks like it is in the way of the cue ball.':'');
+  updatePosMetrics();draw();return}
+ suggestion={power:best.power,vertical:best.vertical,spin:best.spin,land:best.res.land,leave:best.leave,total:best.total,res:best.res,r:g.r,TL:g.TL};
+ power.value=best.power;vertical.value=best.vertical;spin.value=best.spin;
+ const lv=best.leave,bw=Math.max(1,Math.round(lv.dist/(2*g.r)));
+ let txt='Hit '+vertWords(best.vertical)+' with '+sideWords(best.spin,best.res.running)+' at about '+best.power+'% power; the cue ball should stop in the green circle, about '+bw+' ball-width'+(bw===1?'':'s')+' from the next ball, for a '+Math.round(lv.cut)+'° cut into '+lv.pocket+'.';
+ const warn=[];if(best.res.frozen)warn.push('it may end up close to a rail');if(best.res.collide)warn.push('the path brushes another ball');if(best.res.scratch)warn.push('scratch risk');if(g.blocked)warn.push('another ball may block the cue ball on the way to the object ball');
+ if(warn.length)txt+=' Watch out: '+warn.join(', ')+'.';
+ if(best.total<0.35)txt+=' This is a tough layout, so the suggestion is a best guess.';
+ el.textContent=txt;
+ updateControls();updatePosMetrics();
+ if(!auto)setStatus('Position suggestion ready. Adjust the sliders to see how the predicted path changes.');
+}
+function updatePosMetrics(){
+ const nc=document.getElementById('nextCutMetric'),pm=document.getElementById('positionMetric');
+ if(suggestion&&suggestion.leave){nc.textContent=Math.round(suggestion.leave.cut)+'°';const q=suggestion.total;pm.textContent=q>=0.75?'Good':q>=0.45?'OK':'Tough'}else{nc.textContent='—°';pm.textContent='—'}
+}
+function updateManualText(){
+ const el=document.getElementById('manualSummary');if(!el)return;
+ const g=readyForPosition()?shotGeom():null;if(!g){el.textContent='';return}
+ const res=simulate(g,Number(power.value),Number(vertical.value),Number(spin.value));
+ if(!res.valid){el.textContent='With your current settings: '+res.reason+'.';return}
+ const ls=leaveScore(g,res.land);const bits=[];
+ if(!res.objOk)bits.push('the object ball may not reach the pocket');if(res.scratch)bits.push('scratch risk');if(res.collide)bits.push('cue ball hits another ball');if(res.frozen)bits.push('ends near a rail');
+ el.textContent='With your current slider settings (pink path): '+(ls&&ls.cut<78?'about a '+Math.round(ls.cut)+'° cut on the next ball':'no clear shot on the next ball')+(res.rails?', '+res.rails+' rail'+(res.rails===1?'':'s'):'')+(bits.length?'; '+bits.join(', '):'')+'.';
+}
+function drawPosition(){
+ if(!readyForPosition()&&!corners.length)return;
+ const T=tableRect();
+ if(nextBall||corners.length){ctx.save();ctx.setLineDash([4,6]);ctx.strokeStyle='rgba(165,247,255,.35)';ctx.lineWidth=1;ctx.strokeRect(T.x0,T.y0,T.x1-T.x0,T.y1-T.y0);ctx.restore()}
+ const g=readyForPosition()?shotGeom():null;if(!g)return;
+ if(suggestion){const L=suggestion.land;ctx.beginPath();ctx.arc(L.x,L.y,Math.max(14,g.TL*0.055),0,Math.PI*2);ctx.fillStyle='rgba(131,242,143,.22)';ctx.fill();ctx.strokeStyle='rgba(131,242,143,.8)';ctx.lineWidth=1.5;ctx.stroke();
+  if(suggestion.leave){ctx.save();ctx.setLineDash([2,5]);ctx.strokeStyle='rgba(90,176,255,.6)';ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(L.x,L.y);ctx.lineTo(suggestion.leave.ghost.x,suggestion.leave.ghost.y);ctx.stroke();ctx.restore()}}
+ const res=simulate(g,Number(power.value),Number(vertical.value),Number(spin.value));if(!res.valid)return;
+ const pth=res.path.slice(1);ctx.save();ctx.setLineDash([3,5]);ctx.strokeStyle='#ff7ad9';ctx.lineWidth=2.5;ctx.beginPath();ctx.moveTo(pth[0].x,pth[0].y);for(let i=1;i<pth.length;i++)ctx.lineTo(pth[i].x,pth[i].y);ctx.stroke();ctx.restore();
+ for(let i=1;i<pth.length-1;i++){ctx.beginPath();ctx.arc(pth[i].x,pth[i].y,3,0,Math.PI*2);ctx.fillStyle='#ff7ad9';ctx.fill()}
+ const L=res.land;ctx.beginPath();ctx.arc(L.x,L.y,g.r+2,0,Math.PI*2);ctx.strokeStyle='#ff7ad9';ctx.lineWidth=2;ctx.stroke();
+}
+function markersChanged(){updateTableHint();draw();updateMetrics();if(readyForPosition())runSuggest(true);else{suggestion=null;runSuggest(true)}updateManualText()}
+window.poolTest={set:function(st){snapshot();cue=st.cue||null;objects=st.objects||[];pockets=st.pockets||[];nextBall=st.nextBall||null;nextPocket=st.nextPocket||null;corners=st.corners||[];markersChanged()},get:function(){return {suggestion:suggestion,summary:document.getElementById('positionSummary').textContent,manual:document.getElementById('manualSummary').textContent,power:power.value,spin:spin.value,vertical:vertical.value}},sim:function(p,v,s){const g=shotGeom();return g?simulate(g,p,v,s):null}};
+
+loadOpenCV();renderCueGraphic();updateControls();sizeCanvas();updateTableHint();
 })();
 </script>
 </body>
