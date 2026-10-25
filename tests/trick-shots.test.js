@@ -1,10 +1,15 @@
-// Run: node tests/trick-shots.test.js  — simulates every library shot with the same engine the page uses
-var P=require('../physics.js'),SHOTS=require('../shots.js');var fails=0;
-SHOTS.forEach(function(s){var st=P.createState(s.balls);P.strike(st,s.aim,s.power,s.side,s.vert,s.masse);var cr=null;st.onStep=function(x){if(cr===null&&x.firstHit!==null)cr=P.cueBall(x).rails};P.run(st,25);
- var ok=true,why=[];s.targets.forEach(function(t){var pk=st.pocketed.filter(function(x){return String(x.n)===String(t.n)})[0];if(!pk||pk.pocket!==t.p){ok=false;why.push(t.n+' not in '+t.p)}});
- if(st.pocketed.some(function(x){return x.n==='cue'})){ok=false;why.push('scratch')}
- if(s.firstHit!==undefined&&st.firstHit!==s.firstHit){ok=false;why.push('first hit '+st.firstHit)}
- if(s.cueRails!==undefined&&cr!==s.cueRails){ok=false;why.push('cue rails '+cr)}
- if(s.objRails)for(var k in s.objRails){var b=st.balls.filter(function(x){return String(x.n)===k})[0];if(b.rails!==s.objRails[k]){ok=false;why.push(k+' rails '+b.rails)}}
- if(!ok)fails++;console.log((ok?'PASS ':'FAIL ')+s.id+' - '+s.name+(why.length?' ('+why.join(', ')+')':''))});
-console.log(SHOTS.length-fails+'/'+SHOTS.length+' shots pass');process.exit(fails?1:0);
+// Node test: every trick shot and Cue Lab lesson must achieve its goal in the physics engine.  Run: node tests/trick-shots.test.js
+var P=require('../physics.js'),S=require('../shots.js'),fails=0,n=0;
+function check(kind,o){n++;var r=P.evaluate(o);console.log((r.ok?'PASS ':'FAIL ')+kind+' '+o.id+' - '+o.name+(r.ok?'':' ('+r.why.join('; ')+')'));if(!r.ok)fails++}
+S.shots.forEach(function(o){check('shot  ',o)});
+S.lessons.forEach(function(o){check('lesson',o)});
+// physics sanity: squirt, swerve, jump and massé behave in the expected directions
+function cueEnd(o,balls){var st=P.createState(balls||[{n:'cue',x:20,y:25}]);P.strike(st,o);var early=null,at60=null;st.onStep=function(s){var c=P.cueBall(s);if(s.stepCount===150)early=c.y;if(at60===null&&c.x>=60)at60=c.y};P.run(st,20);var c=P.cueBall(st);return {x:c.x,y:c.y,early:early,at60:at60,maxZ:st.maxZ}}
+function expect(name,cond){n++;console.log((cond?'PASS ':'FAIL ')+'physics '+name);if(!cond)fails++}
+expect('right English squirts left',cueEnd({aim:0,power:30,tipX:1}).early>25.05);
+expect('elevated right English swerves right',cueEnd({aim:0,power:30,tipX:1,elev:15}).at60<25-0.5);
+expect('center-ball 45° stroke jumps higher than a ball',cueEnd({aim:0,power:50,elev:45}).maxZ>P.D);
+expect('level stroke does not jump',cueEnd({aim:0,power:80}).maxZ===0);
+expect('draw comes back',cueEnd({aim:0,power:40,tipY:-1},[{n:'cue',x:20,y:25},{n:1,x:40,y:25}]).x<20);
+console.log((n-fails)+'/'+n+' checks pass ('+S.shots.length+' shots, '+S.lessons.length+' lessons)');
+if(fails)process.exit(1);
